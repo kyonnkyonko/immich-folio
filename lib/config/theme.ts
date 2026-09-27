@@ -27,6 +27,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
   minimal: {
     preset: 'minimal',
     accent: '#000000',
+    accentDark: '#ffffff',
     fonts: { heading: 'Geist', body: 'Geist', caption: 'IBM Plex Mono' },
     radius: 0,
     photoFrame: 'none',
@@ -37,6 +38,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
   editorial: {
     preset: 'editorial',
     accent: '#8B2500',
+    accentDark: '#d9602a',
     fonts: { heading: 'Bodoni Moda', body: 'Newsreader', caption: 'Spectral' },
     radius: 0,
     photoFrame: 'shadow',
@@ -47,6 +49,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
   classic: {
     preset: 'classic',
     accent: '#c49a3c',
+    accentLight: '#8d6f2b',
     fonts: { heading: 'Cinzel', body: 'Crimson Pro', caption: 'Crimson Pro' },
     radius: 12,
     photoFrame: 'passepartout',
@@ -57,6 +60,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
   noir: {
     preset: 'noir',
     accent: '#ff6b35',
+    accentLight: '#c2410c',
     fonts: { heading: 'Libre Baskerville', body: 'Source Sans 3', caption: 'Space Mono' },
     radius: 0,
     photoFrame: 'passepartout',
@@ -67,6 +71,7 @@ export const THEME_PRESETS: Record<string, ThemeConfig> = {
   monograph: {
     preset: 'monograph',
     accent: '#333333',
+    accentDark: '#c8c8c8',
     fonts: { heading: 'Instrument Serif', body: 'Inter', caption: 'IBM Plex Mono' },
     radius: 0,
     photoFrame: 'none',
@@ -110,9 +115,71 @@ function resolveRadius(raw: unknown, fallback: number): number {
   return Math.min(THEME_RADIUS_MAX, Math.max(0, raw));
 }
 
-/** `--accent` and `--accent-dim` (app/layout.tsx) take this verbatim. */
+/**
+ * The one form of `--accent` every consumer survives: a `#rrggbb` hex.
+ * A value that is not a colour at all is worse than it looks —
+ * `background: var(--accent, #e60012)` does not fall back, because the
+ * variable is *defined*; the declaration becomes invalid at computed-value
+ * time and the background comes out transparent, leaving the button text on
+ * the surface below. Named and functional colours (`red`, `rgb(230 0 18)`)
+ * would render, but `onAccent()` only reads hex and would answer white for
+ * them whatever their lightness. Parsing arbitrary CSS colour syntax
+ * server-side is a dependency this does not need: hex is what the admin's
+ * picker writes and what every preset uses, so everything else falls back to
+ * the preset, the same treatment `resolveRadius` gives `radius`.
+ */
+const ACCENT_HEX = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+
+/** Trim, case-fold and widen to `#rrggbb`; refuse anything that is not hex. */
 function resolveAccent(raw: unknown, fallback: string): string {
-  return typeof raw === 'string' && raw.trim() ? raw : fallback;
+  if (typeof raw !== 'string') return fallback;
+  const value = raw.trim();
+  if (!ACCENT_HEX.test(value)) return fallback;
+  const hex = value.slice(1).toLowerCase();
+  if (hex.length === 3) {
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+  }
+  // 8-digit keeps the hue and drops the alpha — an accent a visitor can read
+  // is worth more than the translucency the 12%-dim variants approximate anyway.
+  return `#${hex.slice(0, 6)}`;
+}
+
+/** The accent a colour mode renders with (`--accent-dark` / `--accent-light`). */
+export function accentForMode(theme: ThemeConfig, mode: 'dark' | 'light'): string {
+  return (mode === 'dark' ? theme.accentDark : theme.accentLight) ?? theme.accent;
+}
+
+/** WCAG relative luminance of a `#rgb` / `#rrggbb` colour, or null for anything else. */
+export function relativeLuminance(color: string): number | null {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+  if (!m) return null;
+  const hex = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** WCAG contrast ratio of two hex colours; null when either is not hex. */
+export function contrastRatio(a: string, b: string): number | null {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  if (la === null || lb === null) return null;
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/**
+ * Text colour for a button filled with the accent (`--on-accent`): black or
+ * white, whichever contrasts more. Buttons used `--bg-primary` for this, which
+ * is the one colour guaranteed to vanish when the accent matches the page —
+ * Minimal's black-on-black gate button. A non-hex accent keeps white.
+ */
+export function onAccent(accent: string): string {
+  const toBlack = contrastRatio(accent, '#000000');
+  const toWhite = contrastRatio(accent, '#ffffff');
+  if (toBlack === null || toWhite === null) return '#ffffff';
+  return toBlack > toWhite ? '#000000' : '#ffffff';
 }
 
 /** `String(theme.grain)`/`String(theme.headerDot)` become a `data-*` attribute
@@ -144,9 +211,17 @@ export function resolveTheme(raw?: SettingsYaml['theme']): ThemeConfig {
     );
   }
 
+  const accent = resolveAccent(raw.accent, base.accent);
+  // An accent of the owner's own is their choice in both modes. The preset's
+  // per-mode variants stand in only for the preset's accent — which the admin
+  // may also have written into settings.yaml verbatim.
+  const ownAccent = accent.trim().toLowerCase() !== base.accent.toLowerCase();
+
   return {
     preset: baseName,
-    accent: resolveAccent(raw.accent, base.accent),
+    accent,
+    ...(!ownAccent && base.accentDark ? { accentDark: base.accentDark } : {}),
+    ...(!ownAccent && base.accentLight ? { accentLight: base.accentLight } : {}),
     fonts: {
       heading: raw.fonts?.heading ?? base.fonts.heading,
       body: raw.fonts?.body ?? base.fonts.body,
@@ -164,9 +239,16 @@ export function resolveTheme(raw?: SettingsYaml['theme']): ThemeConfig {
   };
 }
 
-export function getGoogleFontsUrl(theme: ThemeConfig): string {
-  const weights = '300;400;500;600';
-  const families = [...new Set([theme.fonts.heading, theme.fonts.body, theme.fonts.caption])];
-  const params = families.map((f) => `family=${f.replace(/ /g, '+')}:wght@${weights}`).join('&');
-  return `https://fonts.googleapis.com/css2?${params}&display=swap`;
+/**
+ * The stylesheet for a set of Google Fonts families, served from this origin
+ * by /api/fonts/css (lib/fonts.ts) so a visitor's browser never contacts
+ * Google. Client-safe: the dev toolbar builds the same URL.
+ */
+export function getFontsCssUrl(families: string[]): string {
+  const unique = [...new Set(families)];
+  return `/api/fonts/css?${unique.map((f) => `family=${encodeURIComponent(f)}`).join('&')}`;
+}
+
+export function getThemeFontsUrl(theme: ThemeConfig): string {
+  return getFontsCssUrl([theme.fonts.heading, theme.fonts.body, theme.fonts.caption]);
 }

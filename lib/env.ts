@@ -18,11 +18,17 @@ export interface Env {
   WEBHOOK_SECRET?: string;
   ADMIN_PASSWORD?: string;
   SITE_PASSWORD?: string;
+  CONTACT_NOTIFY_URL?: string;
   INSTALL_CONTENT_DIR?: string;
   /** Whether the admin dashboard may ask GitHub for the latest release. */
   UPDATE_CHECK: boolean;
   /** Absolute site URL for sitemap, feed and JSON-LD. Overrides settings.yaml. */
   SITE_URL?: string;
+  /**
+   * Base URL of a pull CDN in front of this server. Image and video URLs are
+   * rewritten onto it; see lib/cdn.ts.
+   */
+  CDN_URL?: string;
 }
 
 /**
@@ -43,6 +49,26 @@ export function normalizeApiUrl(raw: string): string {
   } catch {
     return '';
   }
+}
+
+/**
+ * Validate CDN_URL: an absolute http(s) URL, optionally with a path prefix, no
+ * query or fragment (a query would be glued in front of the image path).
+ * Returned without trailing slash so `${base}/api/image/…` never doubles it.
+ * An unusable value returns `''`, which leaves CDN mode off.
+ */
+export function normalizeCdnUrl(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) return '';
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return '';
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
+  if (url.search || url.hash || url.username || url.password) return '';
+  return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
 }
 
 function parseEnv(): Env {
@@ -116,6 +142,13 @@ function parseEnv(): Env {
 
   if (trustedProxyHops < 0) trustedProxyHops = 0;
 
+  const cdnUrl = normalizeCdnUrl(process.env.CDN_URL);
+  if (process.env.CDN_URL?.trim() && !cdnUrl) {
+    console.warn(
+      '⚠️ CDN_URL is not an absolute http(s) URL without query string — CDN mode stays off.',
+    );
+  }
+
   return {
     IMMICH_API_URL: apiUrl,
     IMMICH_API_KEY: apiKey as string,
@@ -133,12 +166,14 @@ function parseEnv(): Env {
     WEBHOOK_SECRET: process.env.WEBHOOK_SECRET || undefined,
     ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || undefined,
     SITE_PASSWORD: process.env.SITE_PASSWORD || undefined,
+    CONTACT_NOTIFY_URL: process.env.CONTACT_NOTIFY_URL || undefined,
     INSTALL_CONTENT_DIR: process.env.INSTALL_CONTENT_DIR || undefined,
     // On unless switched off: an instance that never learns about a security
     // release is the worse default. Only `false` disables it, so a typo does
     // not silently turn the check off.
     UPDATE_CHECK: process.env.UPDATE_CHECK !== 'false',
     SITE_URL: process.env.SITE_URL || undefined,
+    CDN_URL: cdnUrl || undefined,
   };
 }
 

@@ -5,12 +5,18 @@ import path from 'node:path';
 import { getConfig, slugify } from '@/lib/config';
 import { env } from '@/lib/env';
 import { listJournalEntries } from '@/lib/admin/journal-service';
+import { readSettingsYaml } from '@/lib/admin/yaml-service';
+import { readPrivacy } from '@/lib/privacy';
 import {
   checkAlbumIds,
   checkAlbumSlugCollisions,
   checkAlbumsShared,
   checkAuthSecret,
+  checkCdn,
   checkImmichCalls,
+  checkContact,
+  checkLegal,
+  checkPrivacy,
   checkPasswords,
   checkProxyHops,
   checkWritable,
@@ -20,6 +26,8 @@ import {
   type AlbumRef,
   type AlbumSlugGroup,
   type DoctorFinding,
+  type ContactRef,
+  type LegalRef,
   type PasswordRef,
 } from '@/lib/admin/doctor';
 
@@ -43,6 +51,9 @@ export const GET = withAdmin(async (request: NextRequest) => {
       PROXY_MARKER_HEADERS.some((h) => !!request.headers.get(h)),
     ),
   );
+
+  const cdn = checkCdn(env.CDN_URL, !!config.sitePassword, config.trustedProxyHops);
+  if (cdn) findings.push(cdn);
 
   // ── Immich: the three calls Folio actually depends on ────────────────
   const calls: Array<{ endpoint: string; ok: boolean }> = [];
@@ -134,6 +145,27 @@ export const GET = withAdmin(async (request: NextRequest) => {
     // Journal entries are optional; a missing directory is not a fault.
   }
   findings.push(checkPasswords(passwords));
+
+  // ── Impressum and contact form: judged on the raw blocks, see checkLegal ──
+  let rawLegal: LegalRef = config.legal;
+  let rawContact: ContactRef = config.contact;
+  try {
+    const settings = await readSettingsYaml();
+    rawLegal = settings?.legal ?? rawLegal;
+    rawContact = settings?.contact ?? rawContact;
+  } catch {
+    // Fall back to the resolved blocks; only a dropped URL goes unseen.
+  }
+  const legal = checkLegal(rawLegal, config.contact.enabled);
+  if (legal) findings.push(legal);
+  const contact = checkContact(rawContact, env.CONTACT_NOTIFY_URL);
+  if (contact) findings.push(contact);
+  const privacy = checkPrivacy({
+    legalEnabled: config.legal.enabled,
+    privacyEnabled: config.privacy.enabled,
+    hasText: readPrivacy() !== '',
+  });
+  if (privacy) findings.push(privacy);
 
   // ── Writability of the content volume ────────────────────────────────
   const contentDir = path.join(process.cwd(), 'content');

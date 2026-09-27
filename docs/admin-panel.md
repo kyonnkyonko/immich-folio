@@ -45,8 +45,13 @@ Each area has its own URL, so a section can be bookmarked and the browser's back
 
 Unsaved changes raise a save bar pinned to the bottom of the viewport, so the Save button is reachable without scrolling back up. Saving applies immediately — no server restart.
 
+## Overview
+
+`/admin` opens on the overview: what needs attention (unread messages, doctor warnings and errors, each linking to where it is fixed), the site at a glance (published pages, hero photos, journal entries and drafts, views in the last seven days) and a few quick actions. Navigation sits in a sidebar grouped into Content, Visitors, Site and System; View site, Backups, Reload and Sign out are at its foot. See [the UX concept](admin-ux-concept.md) for where this is going.
+
 ## Pages
 
+The page builder has two columns: on the left the whole structure (home page hero, every subpage with its cover, state and album count, standalone albums), always visible and drag-sortable; on the right the selected entry, edited in place. A subpage's panel switches between **Edit** and **Live preview** in its header.
 A visual tree of your gallery structure. Each item opens a slide-over drawer with its settings.
 
 ### Hero Images
@@ -111,7 +116,7 @@ Eight sections, each at its own URL (`/admin/settings/theme`, …):
 | **Theme**                 | Preset, colour mode, accent, photo frame, hero style, grain, header dot                                                             |
 | **Grid**                  | Layout algorithm, columns, gap, aspect ratio                                                                                        |
 | **Footer**                | Name, Instagram, email, website, and the header navigation links                                                                    |
-| **Legal**                 | Impressum toggle and all legal fields                                                                                               |
+| **Legal**                 | Impressum toggle and all legal fields, the contact form and its notification, the privacy policy                                    |
 | **SEO**                   | Meta title, subpage title template, description, noindex, nofollow                                                                  |
 | **Security & Protection** | Right-click and image-drag deterrents, lightbox watermark (text, position, opacity)                                                 |
 | **About**                 | Portrait asset, name, location, gear list, and the biography — written to `content/about.md`                                        |
@@ -125,6 +130,22 @@ Theme presets, grid layouts, photo frames, hero styles and the Google search sni
 ## Analytics
 
 View counts per page and album, read from `content/analytics.json`. No cookies, no third party, nothing leaving your server. Switch the collection off entirely in **Settings → General**; the tracking endpoint then refuses to record.
+
+## Privacy Policy
+
+**Settings → Legal → Privacy Policy** edits `content/privacy.md`, shown at `/privacy` and linked in the footer once it has text. It is Markdown: `##` headings, `-` lists, `**bold**` and links.
+
+Folio writes no legal text for you. Next to the editor it lists **what this site processes**, read off your configuration: where photos and fonts come from, whether the map, visitor statistics, the contact form, password cookies or a CDN are in use, and which of them involve a third party. **Insert headings** adds the section headings that list implies, and nothing else. Earlier versions are kept under **Backups**, like the About page.
+
+Diagnostics warns while the Impressum is on and there is no privacy policy.
+
+## Messages
+
+The inbox of the contact form at `/contact`, switched on under **Settings → Legal**. Each message is a file in `content/messages/` and is deleted automatically after the retention period (90 days unless set otherwise). Opening a message marks it read; **Reply by email** opens your own mail client with the sender's address and the message quoted, since Folio sends no mail itself.
+
+To hear about new messages, set a **Notification URL**. Folio POSTs a fixed "A new message arrived" to it, with nothing about the sender: no name, no address, no text. So no personal data reaches the push service. That fits [ntfy](https://ntfy.sh): install the app, subscribe to a topic name nobody can guess, and paste `https://ntfy.sh/<topic>` (or the URL of your own ntfy server). Any other endpoint that accepts a plain-text POST works too. `CONTACT_NOTIFY_URL` in the environment overrides the field. Without a notification, the Diagnostics page warns: a contact channel nobody reads does not count as one.
+
+Spam protection works without a captcha: a hidden field only bots fill in, a minimum time between opening the form and sending it, three messages a minute per IP, and a cap of 500 stored messages. At the cap new messages are refused rather than old ones dropped.
 
 ## Album & Asset Pickers
 

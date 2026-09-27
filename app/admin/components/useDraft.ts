@@ -46,7 +46,35 @@ export function readDraft<T>(key: string): Draft<T> | null {
   }
 }
 
+/**
+ * True when a draft holds a password as typed. Passwords are stored as scrypt
+ * hashes (#706), but between typing and saving the editor holds the plaintext,
+ * and sessionStorage is readable by any script on the admin origin. Such a
+ * draft is not kept: the unsaved-changes guard still warns before leaving, and
+ * the password is typed again after a reload.
+ */
+export function holdsPlaintextPassword(value: unknown): boolean {
+  if (typeof value === 'string') {
+    // Journal markdown: a `password:` line in the frontmatter.
+    const fm = /^---\n([\s\S]*?)\n---/.exec(value)?.[1] ?? '';
+    return /^password:[ \t]*(?!['"]?scrypt:)['"]?\S/m.test(fm);
+  }
+  if (Array.isArray(value)) return value.some(holdsPlaintextPassword);
+  if (value && typeof value === 'object') {
+    return Object.entries(value).some(([k, v]) =>
+      /^(?:password|sitePassword)$/.test(k) && typeof v === 'string'
+        ? v !== '' && !v.startsWith('scrypt:')
+        : holdsPlaintextPassword(v),
+    );
+  }
+  return false;
+}
+
 export function writeDraft<T>(key: string, draft: Draft<T>): void {
+  if (holdsPlaintextPassword(draft.value)) {
+    clearDraft(key);
+    return;
+  }
   try {
     window.sessionStorage.setItem(PREFIX + key, JSON.stringify(draft));
   } catch {
@@ -73,13 +101,19 @@ export type DraftStatus = 'none' | 'restored' | 'conflict';
 export function useDraft<T>(key: string, value: T, dirty: boolean) {
   /** The server fingerprint the current edits started from; null until loaded. */
   const baseRef = useRef<string | null>(null);
+  /**
+   * True while a `conflict` waits for an answer. The editor shows the server
+   * state meanwhile — not dirty — and without this hold the effect below would
+   * clear the very draft "Restore my changes" is about to read.
+   */
+  const holdRef = useRef(false);
   const [status, setStatus] = useState<DraftStatus>('none');
 
   // Mirror the edits while there are any, and drop the draft once there are
   // none — a save or a discard. Nothing is written before `load()` has set a
   // base, so the empty state an editor mounts with never lands in storage.
   useEffect(() => {
-    if (baseRef.current === null) return;
+    if (baseRef.current === null || holdRef.current) return;
     if (dirty) writeDraft(key, { base: baseRef.current, value });
     else clearDraft(key);
   }, [key, value, dirty]);
@@ -91,6 +125,7 @@ export function useDraft<T>(key: string, value: T, dirty: boolean) {
   const load = useCallback(
     (base: string): T | null => {
       baseRef.current = base;
+      holdRef.current = false;
       const draft = readDraft<T>(key);
       if (!draft) {
         setStatus('none');
@@ -100,6 +135,7 @@ export function useDraft<T>(key: string, value: T, dirty: boolean) {
         setStatus('restored');
         return draft.value;
       }
+      holdRef.current = true;
       setStatus('conflict');
       return null;
     },
@@ -110,6 +146,7 @@ export function useDraft<T>(key: string, value: T, dirty: boolean) {
   const saved = useCallback(
     (base: string) => {
       baseRef.current = base;
+      holdRef.current = false;
       clearDraft(key);
       setStatus('none');
     },
@@ -118,6 +155,7 @@ export function useDraft<T>(key: string, value: T, dirty: boolean) {
 
   /** The held-back draft of a `conflict`, for "restore anyway". */
   const takeConflicting = useCallback((): T | null => {
+    holdRef.current = false;
     const draft = readDraft<T>(key);
     setStatus(draft ? 'restored' : 'none');
     return draft?.value ?? null;
@@ -125,6 +163,7 @@ export function useDraft<T>(key: string, value: T, dirty: boolean) {
 
   /** Forget the draft. The editor reloads the server state itself. */
   const discard = useCallback(() => {
+    holdRef.current = false;
     clearDraft(key);
     setStatus('none');
   }, [key]);

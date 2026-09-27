@@ -173,6 +173,53 @@ export function checkProxyHops(
   };
 }
 
+/**
+ * CDN mode (lib/cdn.ts). Only reported when `CDN_URL` is set.
+ *
+ * Two ways it quietly goes wrong. A site password keeps the photos on this
+ * host on purpose, which reads as "the CDN does nothing". And with
+ * `TRUSTED_PROXY_HOPS=0`, every cache miss is rate-limited by the CDN edge's
+ * IP instead of the visitor's: a handful of edges share one bucket, and a busy
+ * page can push one of them into 429s that then show up as missing photos.
+ */
+export function checkCdn(
+  cdnUrl: string | undefined,
+  sitePasswordSet: boolean,
+  trustedProxyHops: number,
+): DoctorFinding | null {
+  if (!cdnUrl) return null;
+
+  if (sitePasswordSet) {
+    return {
+      id: 'cdn',
+      level: 'warn',
+      title: 'CDN_URL is set, but photos are served from this server',
+      detail:
+        'The site is password-protected, and a CDN would hand cached photos to anyone with a ' +
+        'link, so CDN mode stays off. Remove the site password or unset CDN_URL.',
+    };
+  }
+
+  if (trustedProxyHops === 0) {
+    return {
+      id: 'cdn',
+      level: 'warn',
+      title: 'CDN mode is on, but TRUSTED_PROXY_HOPS is 0',
+      detail:
+        `Photos are served through ${cdnUrl}, and without TRUSTED_PROXY_HOPS the rate limiter ` +
+        'counts the CDN edge instead of the visitor. Set it to the number of proxies in front of ' +
+        'the app, the CDN included.',
+    };
+  }
+
+  return {
+    id: 'cdn',
+    level: 'ok',
+    title: 'CDN mode is on',
+    detail: `Photos and videos are served through ${cdnUrl}.`,
+  };
+}
+
 /** Headers a reverse proxy sets and Next never synthesises. */
 export const PROXY_MARKER_HEADERS = ['x-real-ip', 'forwarded', 'via'];
 
@@ -369,7 +416,8 @@ export function checkPasswords(passwords: PasswordRef[]): DoctorFinding {
       level: 'warn',
       title: `${plaintext.length} password${plaintext.length === 1 ? ' is' : 's are'} stored in plaintext`,
       detail:
-        'Anyone who reads the file reads the password. Log in once and replace it with the ' +
+        'Anyone who reads the file reads the password. Saving the page, entry or setting once ' +
+        'in the admin panel stores it hashed; for a hand-edited file, log in once and paste the ' +
         `scrypt: hash printed to the server log: ${plaintext.map((p) => p.label).join(', ')}`,
     };
   }
@@ -388,6 +436,154 @@ export function checkPasswords(passwords: PasswordRef[]): DoctorFinding {
     level: 'ok',
     title: `All ${passwords.length} passwords are hashed`,
     detail: 'Every configured password uses a scrypt: hash.',
+  };
+}
+
+/** The `legal:` block as settings.yaml holds it, before resolveLegal(). */
+export interface LegalRef {
+  enabled?: unknown;
+  name?: unknown;
+  address?: unknown;
+  zipCity?: unknown;
+  email?: unknown;
+  phone?: unknown;
+  contactUrl?: unknown;
+}
+
+/**
+ * Whether an enabled Impressum carries what § 5 DDG asks for: a name and a
+ * postal address, an email address, and a second fast way to get in touch
+ * (phone or a contact form, ECJ C-298/07).
+ *
+ * It takes the raw block rather than the resolved one because resolveLegal()
+ * drops a contact URL that is not http(s) and only tells the server log, so
+ * the link would just go missing. The http(s) test repeats isHttpUrl() from
+ * lib/config/schema.ts: this module has no imports, so the CLI can load it.
+ * Returns null when the page is switched off.
+ */
+export function checkLegal(
+  legal: LegalRef | null | undefined,
+  /** The built-in form (#702) is linked from the Impressum when no contactUrl is set. */
+  contactFormEnabled = false,
+): DoctorFinding | null {
+  if (!legal || legal.enabled !== true) return null;
+
+  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+  const email = text(legal.email);
+  const phone = text(legal.phone);
+  const rawUrl = text(legal.contactUrl);
+  const contactUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : '';
+  const secondChannel = phone || contactUrl || contactFormEnabled;
+
+  const problems: string[] = [];
+  const missing = (
+    [
+      ['name', legal.name],
+      ['street address', legal.address],
+      ['ZIP and city', legal.zipCity],
+    ] as const
+  )
+    .filter(([, value]) => !text(value))
+    .map(([label]) => label);
+  if (missing.length) problems.push(`Missing: ${missing.join(', ')}.`);
+  if (!email) problems.push('No email address; § 5 DDG requires one.');
+  if (rawUrl && !contactUrl) {
+    problems.push('The contact form URL is ignored because it does not start with http(s)://.');
+  }
+  if (email && !secondChannel) {
+    problems.push(
+      'Email is the only contact channel. Add a phone number, a contact form URL, or turn on the built-in contact form.',
+    );
+  }
+
+  if (problems.length) {
+    return {
+      id: 'legal',
+      level: 'warn',
+      title: `The Impressum has ${problems.length} gap${problems.length === 1 ? '' : 's'}`,
+      detail: problems.join(' '),
+    };
+  }
+
+  return {
+    id: 'legal',
+    level: 'ok',
+    title: 'The Impressum is complete',
+    detail: 'Name, address, email and a second contact channel are set.',
+  };
+}
+
+/** The `contact:` block as settings.yaml holds it. */
+export interface ContactRef {
+  enabled?: unknown;
+  notifyUrl?: unknown;
+}
+
+/**
+ * The contact form stores messages without telling anyone unless a
+ * notification URL is set. The ECJ reads the second contact channel as one
+ * that allows "direct and effective" communication, and a form nobody looks
+ * at does not. Returns null when the form is off.
+ */
+export function checkContact(
+  contact: ContactRef | null | undefined,
+  envNotifyUrl?: string,
+): DoctorFinding | null {
+  if (!contact || contact.enabled !== true) return null;
+  const url =
+    envNotifyUrl?.trim() || (typeof contact.notifyUrl === 'string' ? contact.notifyUrl.trim() : '');
+
+  if (!url) {
+    return {
+      id: 'contact',
+      level: 'warn',
+      title: 'Contact form messages notify nobody',
+      detail:
+        'New messages only show up under Messages in the admin panel. Set an ntfy URL so you hear about them.',
+    };
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    return {
+      id: 'contact',
+      level: 'warn',
+      title: 'The contact notification URL is ignored',
+      detail: 'It does not start with http(s)://, so no notification is sent.',
+    };
+  }
+  return {
+    id: 'contact',
+    level: 'ok',
+    title: 'Contact form notifies you',
+    detail: 'Each new message triggers a notification.',
+  };
+}
+
+/**
+ * A site that needs an Impressum almost always needs a privacy policy too
+ * (Art. 13 GDPR). Returns null while there is neither an Impressum nor a
+ * policy, so a site that has chosen to have no legal pages is not nagged.
+ */
+export function checkPrivacy(p: {
+  legalEnabled: boolean;
+  privacyEnabled: boolean;
+  hasText: boolean;
+}): DoctorFinding | null {
+  if (p.privacyEnabled && p.hasText) {
+    return {
+      id: 'privacy',
+      level: 'ok',
+      title: 'The privacy policy is published',
+      detail: 'Shown at /privacy and linked in the footer.',
+    };
+  }
+  if (!p.legalEnabled) return null;
+  return {
+    id: 'privacy',
+    level: 'warn',
+    title: 'There is no privacy policy',
+    detail: p.hasText
+      ? 'The text exists but the privacy page is switched off, so /privacy answers 404.'
+      : 'The Impressum is on but /privacy has no text. Settings → Legal lists what this site processes, as a starting point.',
   };
 }
 

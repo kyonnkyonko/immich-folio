@@ -68,6 +68,7 @@ docker-compose.override.yml
 content/settings.yaml
 content/gallery.yaml
 content/about.md
+content/privacy.md
 # Journal entries reference Immich asset UUIDs, which are specific to one
 # server — committing an entry would publish ids from the author's instance.
 # The .example alongside them stays tracked as a starting point.
@@ -86,6 +87,10 @@ content/*.screenshot-bak
 content/install.json
 # One-time setup token, written on first access and removed once install completes
 content/.setup-token
+# Contact form messages (lib/contact.ts), personal data of visitors
+content/messages/
+# Google Fonts cached by /api/fonts (lib/fonts.ts)
+content/.fonts/
 
 # ── Internal Dev Docs ────────────────────────────────
 docs/dev/

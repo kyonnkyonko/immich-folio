@@ -37,6 +37,8 @@ const config = {
   subpages: [],
   albumPasswords: {},
   theme: { accent: '#e60012', fonts: { heading: 'Inter', body: 'Inter', caption: 'Inter' } },
+  contact: { enabled: true, retentionDays: 90 },
+  siteUrl: null,
 };
 
 vi.mock('@/lib/config', () => ({
@@ -87,6 +89,14 @@ const GATED: { name: string; call: () => Promise<Response> }[] = [
       (await import('../download/[album]/archive/route')).GET(
         request('/api/download/tok/archive') as never,
         { params: Promise.resolve({ album: 'tok' }) } as never,
+      ),
+  },
+  {
+    // Stores whatever a visitor sends; a locked site accepts nothing from strangers.
+    name: 'POST /api/contact',
+    call: async () =>
+      (await import('../contact/route')).POST(
+        new NextRequest('http://localhost/api/contact', { method: 'POST', body: '{}' }) as never,
       ),
   },
 ];
@@ -141,5 +151,25 @@ describe('routes that must stay open', () => {
       }) as never,
     );
     expect(res.status).toBe(200);
+  });
+
+  // The password gate is set in the theme's fonts; locking them would render
+  // the gate itself in fallback fonts. Three public font names give nothing away.
+  it('GET /api/fonts/css answers a locked site', async () => {
+    config.sitePassword = 'letmein';
+    const res = await (
+      await import('../fonts/css/route')
+    ).GET(request('/api/fonts/css?family=Inter%3Ax') as never);
+    expect(res.status).not.toBe(401);
+  });
+
+  it('GET /api/fonts/file/[name] answers a locked site', async () => {
+    config.sitePassword = 'letmein';
+    const res = await (
+      await import('../fonts/file/[name]/route')
+    ).GET(request('/api/fonts/file/x.woff2') as never, {
+      params: Promise.resolve({ name: 'x.woff2' }),
+    });
+    expect(res.status).not.toBe(401);
   });
 });

@@ -11,25 +11,24 @@ import {
   DragEndEvent,
 } from '@dnd-kit/core';
 import {
-  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
-  useSortable,
   verticalListSortingStrategy,
   horizontalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import AlbumPicker from './AlbumPicker';
+import { useContentRestored } from './contentRestored';
 import AssetPicker from './AssetPicker';
 import AssetOrderEditor from './AssetOrderEditor';
-import SaveBar from './SaveBar';
+import SaveBar, { type SaveStatus } from './SaveBar';
 import AlbumDrawer from './page-builder/AlbumDrawer';
 import { SortableAlbumCard } from './page-builder/AlbumCard';
 import SubpageDrawer from './page-builder/SubpageDrawer';
+import { SortableHeroTile, SortableSubpageRow } from './page-builder/SortableTiles';
 import { findAlbumAddress } from './page-builder/findAlbumAddress';
-import { parseAlbumEntries, serializeAlbumEntries } from './page-builder/albumEntries';
+import { parseGalleryYaml, serializeGallery, type GalleryState } from './page-builder/galleryYaml';
+import * as ops from './page-builder/galleryOps';
 import {
-  seedCoverGrid,
   type ActiveEditAlbumAddress,
   type AlbumEntry,
   type HeroPickerTarget,
@@ -44,164 +43,17 @@ import { useUnsavedGuard } from './useUnsavedGuard';
 import { useDraft } from './useDraft';
 import DraftNotice from './DraftNotice';
 import { reportIfSessionExpired } from './sessionExpiry';
-import {
-  IconCamera,
-  IconFolder,
-  IconGripVertical,
-  IconHome,
-  IconLock,
-  IconPencil,
-  IconPlus,
-  IconSearch,
-  IconX,
-} from './Icons';
-
-// ── Types ──────────────────────────────────────────────────────
-
-interface GalleryState {
-  hero: string[];
-  albums: AlbumEntry[];
-  subpages: Subpage[];
-}
-
-// ── Sortable Hero Tile ─────────────────────────────────────────
-
-function SortableHeroTile({
-  id,
-  index,
-  onRemove,
-}: {
-  id: string;
-  index: number;
-  onRemove: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: `hero-${index}`,
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 10 : undefined,
-  };
-
-  return (
-    <div ref={setNodeRef} style={style} className="hero-tile" {...attributes}>
-      <div className="hero-tile-drag" {...listeners} title="Drag to reorder">
-        <IconGripVertical size={18} className="svg-icon svg-drag" />
-      </div>
-      <img src={`/api/admin/thumbnail/${id}`} alt="" loading="lazy" />
-      <button className="hero-tile-remove" onClick={onRemove} title="Remove">
-        <IconX size={14} />
-      </button>
-      <span className="hero-tile-index">{index + 1}</span>
-    </div>
-  );
-}
-
-// ── Sortable Subpage Tile ──────────────────────────────────────
-
-function SortableSubpageTile({
-  sp,
-  spIndex,
-  isActive,
-  onClick,
-  getFirstThumb,
-}: {
-  sp: Subpage;
-  spIndex: number;
-  isActive: boolean;
-  onClick: () => void;
-  getFirstThumb: (sp: Subpage) => string | null;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: `subpage-${spIndex}`,
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 10 : undefined,
-  };
-
-  const totalAlbums =
-    sp.albums.length + (sp.sections?.reduce((sum, sec) => sum + sec.albums.length, 0) || 0);
-  const firstThumb = getFirstThumb(sp);
-  const slug = sp.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`subpage-tile ${isActive ? 'active' : ''}`}
-      onClick={onClick}
-      {...attributes}
-    >
-      <div className="subpage-tile-drag" {...listeners} title="Drag to reorder">
-        <IconGripVertical size={18} className="svg-icon svg-drag" />
-      </div>
-
-      {sp.enabled === false && (
-        <span
-          className="subpage-badge-protected"
-          style={{ background: '#e60012', color: '#fff' }}
-          title="Page is disabled"
-        >
-          Disabled
-        </span>
-      )}
-
-      {sp.hidden === true && sp.enabled !== false && (
-        <span
-          className="subpage-badge-protected"
-          title="Hidden from navigation, reachable by direct link"
-        >
-          Unlisted
-        </span>
-      )}
-
-      {sp.password && (
-        <span className="subpage-badge-protected" title="Password protected">
-          <IconLock size={12} /> Password
-        </span>
-      )}
-
-      <div className="subpage-tile-cover">
-        {firstThumb ? (
-          <img src={`/api/admin/thumbnail/${firstThumb}`} alt="" loading="lazy" />
-        ) : (
-          <div className="subpage-tile-placeholder">
-            <IconFolder />
-          </div>
-        )}
-        <div className="subpage-hover-overlay">
-          <span className="hover-action-btn">
-            <IconPencil size={14} /> Edit Page
-          </span>
-        </div>
-      </div>
-      <div className="subpage-tile-info">
-        <div className="subpage-tile-title-row">
-          <span className="subpage-tile-name">{sp.title || sp.name}</span>
-          <span className="subpage-tile-slug">/{slug}</span>
-        </div>
-        <span className="subpage-tile-meta">
-          <IconFolder /> {totalAlbums} album{totalAlbums !== 1 ? 's' : ''}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ── Component ──────────────────────────────────────────────────
+import { IconCamera, IconHome, IconPlus, IconSearch } from './Icons';
+import { useNotify } from './Notifications';
 
 export default function PageBuilder() {
   const [gallery, setGallery] = useState<GalleryState>({ hero: [], albums: [], subpages: [] });
+  const notify = useNotify();
+  /** The state as last rendered, for Undo to check nothing changed since. */
+  const galleryRef = useRef(gallery);
+  useEffect(() => {
+    galleryRef.current = gallery;
+  }, [gallery]);
   const [immichAlbums, setImmichAlbums] = useState<ImmichAlbumInfo[]>([]);
   const [loading, setLoading] = useState(true);
   /**
@@ -212,8 +64,10 @@ export default function PageBuilder() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>(null);
   const [expandedSubpage, setExpandedSubpage] = useState<number | null>(null);
+  /** What the panel shows while no subpage is selected (UX stage 4). */
+  const [overview, setOverview] = useState<'hero' | 'albums'>('hero');
   const [drawerMode, setDrawerMode] = useState<'edit' | 'preview'>('edit');
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
   const [heroPickerTarget, setHeroPickerTarget] = useState<HeroPickerTarget | null>(null);
@@ -228,7 +82,7 @@ export default function PageBuilder() {
   // Keep the builder still behind either drawer. One combined lock rather than
   // one per drawer: the album drawer opens from inside the subpage drawer, and
   // a single condition avoids two locks racing over the same inline style.
-  useScrollLock(editingAlbumAddress !== null || expandedSubpage !== null);
+  useScrollLock(editingAlbumAddress !== null);
 
   // DnD sensors
   const sensors = useSensors(
@@ -241,6 +95,11 @@ export default function PageBuilder() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A restored gallery.yaml replaces what this editor loaded.
+  useContentRestored(({ target }) => {
+    if (target === 'gallery') loadData();
+  });
 
   // ── Keyboard shortcut: ⌘+S / Ctrl+S ─────────────────────────
   useEffect(() => {
@@ -256,22 +115,6 @@ export default function PageBuilder() {
     return () => window.removeEventListener('keydown', handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, saving, gallery]);
-
-  // ── Escape closes the subpage sheet — only when it is topmost ─
-  useEffect(() => {
-    if (expandedSubpage === null) return;
-    function handleEscape(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      // Listbox preventDefaults its own Escape but does not stopPropagation —
-      // respect that so closing a popup never also closes the sheet.
-      if (e.defaultPrevented) return;
-      // A higher layer (album editor, pickers, order editor) owns the key.
-      if (editingAlbumAddress || pickerTarget || heroPickerTarget || orderEditorTarget) return;
-      setExpandedSubpage(null);
-    }
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [expandedSubpage, editingAlbumAddress, pickerTarget, heroPickerTarget, orderEditorTarget]);
 
   useUnsavedGuard(dirty);
 
@@ -322,7 +165,9 @@ export default function PageBuilder() {
       serverState.current = parsed;
       const restored = draft.load(JSON.stringify(parsed));
       setGallery(restored ?? parsed);
-      if (restored) setDirty(true);
+      // Not merely "set when restored": on a reload after a backup restore the
+      // editor may have been dirty, and now shows the server state.
+      setDirty(restored !== null);
       openAlbumFromLink(restored ?? parsed);
 
       // A failed album list is survivable — it only empties the picker, and
@@ -368,71 +213,11 @@ export default function PageBuilder() {
     }
   }
 
-  function parseGalleryYaml(raw: Record<string, unknown>): GalleryState {
-    const hero = Array.isArray(raw.hero) ? raw.hero : raw.hero ? [raw.hero as string] : [];
-    const albums = parseAlbumEntries(
-      raw.albums as Array<string | Record<string, string>> | undefined,
-    );
-
-    let subpages: Subpage[] = [];
-    if (Array.isArray(raw.subpages)) {
-      subpages = (raw.subpages as Array<Record<string, unknown>>).map((sp) => ({
-        name: (sp.name as string) || '',
-        title: sp.title as string | undefined,
-        subtitle: sp.subtitle as string | undefined,
-        password: sp.password as string | undefined,
-        enabled: sp.enabled !== false,
-        hidden: sp.hidden === true,
-        location: sp.location as string | undefined,
-        essayText: sp.essayText as string | undefined,
-        essayFile: sp.essayFile as string | undefined,
-        albums: parseAlbumEntries(sp.albums as Array<string | Record<string, string>> | undefined),
-        sections: sp.sections
-          ? (sp.sections as Array<Record<string, unknown>>).map((sec) => ({
-              title: (sec.title as string) || '',
-              description: sec.description as string | undefined,
-              albums: parseAlbumEntries(sec.albums as Array<string | Record<string, string>>),
-            }))
-          : undefined,
-        grid: sp.grid as Subpage['grid'],
-        coverGrid:
-          (sp.coverGrid as Subpage['coverGrid']) ?? seedCoverGrid(sp.grid as Subpage['grid']),
-      }));
-    } else if (raw.subpages && typeof raw.subpages === 'object') {
-      subpages = Object.entries(raw.subpages as Record<string, unknown>).map(([name, value]) => {
-        if (Array.isArray(value)) {
-          return { name, albums: parseAlbumEntries(value), sections: undefined, enabled: true };
-        }
-        const sp = value as Record<string, unknown>;
-        return {
-          name,
-          title: sp.title as string | undefined,
-          subtitle: sp.subtitle as string | undefined,
-          password: sp.password as string | undefined,
-          enabled: sp.enabled !== false,
-          hidden: sp.hidden === true,
-          location: sp.location as string | undefined,
-          essayText: sp.essayText as string | undefined,
-          essayFile: sp.essayFile as string | undefined,
-          albums: parseAlbumEntries(
-            sp.albums as Array<string | Record<string, string>> | undefined,
-          ),
-          sections: undefined,
-          grid: sp.grid as Subpage['grid'],
-          coverGrid:
-            (sp.coverGrid as Subpage['coverGrid']) ?? seedCoverGrid(sp.grid as Subpage['grid']),
-        };
-      });
-    }
-
-    return { hero, albums, subpages };
-  }
-
   function discardDraft() {
     draft.discard();
     if (serverState.current) setGallery(serverState.current);
     setDirty(false);
-    setSaveMessage('');
+    setSaveStatus(null);
   }
 
   function restoreConflictingDraft() {
@@ -444,7 +229,7 @@ export default function PageBuilder() {
 
   const markDirty = useCallback(() => {
     setDirty(true);
-    setSaveMessage('');
+    setSaveStatus(null);
   }, []);
 
   // ── Save ──────────────────────────────────────────────────────
@@ -453,49 +238,9 @@ export default function PageBuilder() {
     if (loadError) return;
 
     setSaving(true);
-    setSaveMessage('');
+    setSaveStatus(null);
 
-    const yamlData: Record<string, unknown> = {};
-
-    if (gallery.hero.length > 0) {
-      yamlData.hero = gallery.hero;
-    }
-    if (gallery.albums.length > 0) {
-      yamlData.albums = serializeAlbumEntries(gallery.albums);
-    }
-    if (gallery.subpages.length > 0) {
-      yamlData.subpages = gallery.subpages.map((sp) => {
-        const entry: Record<string, unknown> = { name: sp.name };
-        if (sp.title) entry.title = sp.title;
-        if (sp.subtitle) entry.subtitle = sp.subtitle;
-        if (sp.password) entry.password = sp.password;
-        if (sp.enabled === false) entry.enabled = false;
-        if (sp.hidden === true) entry.hidden = true;
-        if (sp.essayText) entry.essayText = sp.essayText;
-        if (sp.essayFile) entry.essayFile = sp.essayFile;
-        if (sp.grid) entry.grid = sp.grid;
-        if (sp.coverGrid) entry.coverGrid = sp.coverGrid;
-        if (sp.location) entry.location = sp.location;
-
-        if (sp.sections && sp.sections.length > 0) {
-          entry.sections = sp.sections.map((sec) => {
-            const s: Record<string, unknown> = {
-              title: sec.title,
-              albums: serializeAlbumEntries(sec.albums),
-            };
-            if (sec.description) s.description = sec.description;
-            return s;
-          });
-          if (sp.albums.length > 0) {
-            entry.albums = serializeAlbumEntries(sp.albums);
-          }
-        } else {
-          entry.albums = serializeAlbumEntries(sp.albums);
-        }
-
-        return entry;
-      });
-    }
+    const yamlData = serializeGallery(gallery);
 
     try {
       const res = await fetch('/api/admin/gallery', {
@@ -507,72 +252,54 @@ export default function PageBuilder() {
       if (res.ok) {
         const data = await res.json();
         // Fingerprint what the next load will see, the way it will see it: the
-        // file is exactly `yamlData`, read back through the same parser. The
-        // editor's own state can differ in shape (an `undefined` here, a
-        // default there) and would make every later draft look outdated.
-        const asLoaded = parseGalleryYaml(JSON.parse(JSON.stringify(yamlData)));
+        // file as written, read back through the same parser. The editor's own
+        // state can differ in shape (an `undefined` here, a default there) and
+        // would make every later draft look outdated.
+        //
+        // "As written" is the server's copy, not `yamlData`: passwords are
+        // hashed on the way to disk (#690). Fingerprinting the plaintext would
+        // make the next draft look like a conflicting edit from elsewhere.
+        const written = (data.gallery ?? yamlData) as Record<string, unknown>;
+        const asLoaded = parseGalleryYaml(JSON.parse(JSON.stringify(written)));
         serverState.current = asLoaded;
         draft.saved(JSON.stringify(asLoaded));
+        // Show the hashes, so a new password reads "Protected" right away.
+        if (JSON.stringify(written) !== JSON.stringify(yamlData)) setGallery(asLoaded);
         setDirty(false);
-        setSaveMessage(data.message || 'Saved successfully!');
-        setTimeout(() => setSaveMessage(''), 5000);
+        setSaveStatus({ kind: 'success', message: data.message || 'Saved successfully!' });
+        setTimeout(() => setSaveStatus(null), 5000);
       } else if (!reportIfSessionExpired(res)) {
         const err = await res.json();
-        setSaveMessage(`Error: ${err.error}`);
+        setSaveStatus({ kind: 'error', message: `Error: ${err.error}` });
       }
     } catch {
-      setSaveMessage('Error: Failed to save');
+      setSaveStatus({ kind: 'error', message: 'Error: Failed to save' });
     } finally {
       setSaving(false);
     }
   }
 
-  // ── Hero Picker ──────────────────────────────────────────────
-  function handleHeroSelect(assetId: string) {
-    setGallery((g) => ({ ...g, hero: [...g.hero, assetId] }));
-    setHeroPickerTarget(null);
+  /** Apply one edit from galleryOps and mark the form dirty. */
+  function edit(op: (g: GalleryState) => GalleryState) {
+    setGallery(op);
     markDirty();
   }
 
-  // ── Album Picker Handlers ────────────────────────────────────
+  // ── Pickers ──────────────────────────────────────────────────
+  function handleHeroSelect(assetId: string) {
+    edit((g) => ops.addHero(g, assetId));
+    setHeroPickerTarget(null);
+  }
+
   function handlePickAlbum(albumId: string) {
     if (!pickerTarget) return;
-
-    const entry: AlbumEntry = { id: albumId };
-
-    if (pickerTarget.type === 'standalone') {
-      setGallery((g) => ({ ...g, albums: [...g.albums, entry] }));
-    } else if (pickerTarget.type === 'subpage' && pickerTarget.subpageIndex != null) {
-      setGallery((g) => {
-        const subpages = [...g.subpages];
-        const sp = { ...subpages[pickerTarget.subpageIndex!] };
-        sp.albums = [...sp.albums, entry];
-        subpages[pickerTarget.subpageIndex!] = sp;
-        return { ...g, subpages };
-      });
-    } else if (
-      pickerTarget.type === 'section' &&
-      pickerTarget.subpageIndex != null &&
-      pickerTarget.sectionIndex != null
-    ) {
-      setGallery((g) => {
-        const subpages = [...g.subpages];
-        const sp = { ...subpages[pickerTarget.subpageIndex!] };
-        const sections = [...(sp.sections || [])];
-        const sec = { ...sections[pickerTarget.sectionIndex!] };
-        sec.albums = [...sec.albums, entry];
-        sections[pickerTarget.sectionIndex!] = sec;
-        sp.sections = sections;
-        subpages[pickerTarget.subpageIndex!] = sp;
-        return { ...g, subpages };
-      });
-    }
-
+    const target = pickerTarget;
+    edit((g) => ops.addAlbum(g, target, { id: albumId }));
     setPickerTarget(null);
-    markDirty();
   }
 
   // ── Drag & Drop Handlers ─────────────────────────────────────
+  // dnd-kit reports item ids; these map them back to positions in the list.
   function handleHeroDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -580,10 +307,7 @@ export default function PageBuilder() {
     const oldIndex = gallery.hero.findIndex((_, i) => `hero-${i}` === active.id);
     const newIndex = gallery.hero.findIndex((_, i) => `hero-${i}` === over.id);
 
-    if (oldIndex !== -1 && newIndex !== -1) {
-      setGallery((g) => ({ ...g, hero: arrayMove(g.hero, oldIndex, newIndex) }));
-      markDirty();
-    }
+    if (oldIndex !== -1 && newIndex !== -1) edit((g) => ops.moveHero(g, oldIndex, newIndex));
   }
 
   function handleAlbumDragEnd(event: DragEndEvent) {
@@ -594,8 +318,7 @@ export default function PageBuilder() {
     const newIndex = gallery.albums.findIndex((a, i) => `album-${a.id}-${i}` === over.id);
 
     if (oldIndex !== -1 && newIndex !== -1) {
-      setGallery((g) => ({ ...g, albums: arrayMove(g.albums, oldIndex, newIndex) }));
-      markDirty();
+      edit((g) => ops.moveAlbum(g, { type: 'standalone' }, oldIndex, newIndex));
     }
   }
 
@@ -607,15 +330,8 @@ export default function PageBuilder() {
     const newIndex = gallery.subpages.findIndex((_, i) => `subpage-${i}` === over.id);
 
     if (oldIndex !== -1 && newIndex !== -1) {
-      setGallery((g) => ({ ...g, subpages: arrayMove(g.subpages, oldIndex, newIndex) }));
-      if (expandedSubpage === oldIndex) setExpandedSubpage(newIndex);
-      else if (expandedSubpage !== null) {
-        if (oldIndex < expandedSubpage && newIndex >= expandedSubpage)
-          setExpandedSubpage(expandedSubpage - 1);
-        else if (oldIndex > expandedSubpage && newIndex <= expandedSubpage)
-          setExpandedSubpage(expandedSubpage + 1);
-      }
-      markDirty();
+      edit((g) => ops.moveSubpage(g, oldIndex, newIndex));
+      setExpandedSubpage(ops.followMovedIndex(expandedSubpage, oldIndex, newIndex));
     }
   }
 
@@ -629,142 +345,72 @@ export default function PageBuilder() {
       const newIndex = sp.albums.findIndex((a, i) => `album-${a.id}-${i}` === over.id);
 
       if (oldIndex !== -1 && newIndex !== -1) {
-        setGallery((g) => {
-          const subpages = [...g.subpages];
-          const sp2 = { ...subpages[spIndex] };
-          sp2.albums = arrayMove(sp2.albums, oldIndex, newIndex);
-          subpages[spIndex] = sp2;
-          return { ...g, subpages };
-        });
-        markDirty();
+        edit((g) =>
+          ops.moveAlbum(g, { type: 'subpage', subpageIndex: spIndex }, oldIndex, newIndex),
+        );
       }
     };
   }
 
-  // ── Subpage Management ────────────────────────────────────────
-  function addSubpage() {
-    setGallery((g) => ({
-      ...g,
-      subpages: [
-        ...g.subpages,
-        { name: `New Page ${g.subpages.length + 1}`, albums: [], sections: undefined },
-      ],
-    }));
-    markDirty();
-  }
+  // ── Subpages and sections ────────────────────────────────────
+  const addSubpage = () => edit(ops.addSubpage);
 
-  /** The "03 — Collection" number the page renders: counted over enabled subpages only. */
-  function enabledPosition(index: number): number | undefined {
-    const sp = gallery.subpages[index];
-    if (!sp || sp.enabled === false) return undefined;
-    return gallery.subpages.slice(0, index).filter((s) => s.enabled !== false).length + 1;
-  }
+  const removeSubpage = (index: number) =>
+    removeWithUndo('Page removed.', (g) => ops.removeSubpage(g, index));
 
-  function removeSubpage(index: number) {
-    if (!confirm('Remove this subpage?')) return;
-    setGallery((g) => ({
-      ...g,
-      subpages: g.subpages.filter((_, i) => i !== index),
-    }));
-    markDirty();
-  }
+  const updateSubpage = (index: number, updates: Partial<Subpage>) =>
+    edit((g) => ops.updateSubpage(g, index, updates));
 
-  function updateSubpage(index: number, updates: Partial<Subpage>) {
-    setGallery((g) => {
-      const subpages = [...g.subpages];
-      subpages[index] = { ...subpages[index], ...updates };
-      return { ...g, subpages };
+  const addSection = (subpageIndex: number) => edit((g) => ops.addSection(g, subpageIndex));
+
+  const removeSection = (subpageIndex: number, sectionIndex: number) =>
+    edit((g) => ops.removeSection(g, subpageIndex, sectionIndex));
+
+  const updateSection = (subpageIndex: number, sectionIndex: number, updates: Partial<Section>) =>
+    edit((g) => ops.updateSection(g, subpageIndex, sectionIndex, updates));
+
+  // ── Removal ──────────────────────────────────────────────────
+  // Removing only changes unsaved state, so it happens at once and offers Undo
+  // instead of asking first (#694 §3). It used to be a confirm() before every
+  // click, which is how the builder ended up asking about things nobody could
+  // lose: nothing is written until Save.
+  function removeWithUndo(message: string, op: (g: GalleryState) => GalleryState) {
+    const before = gallery;
+    const after = op(before);
+    if (after === before) return;
+    edit(() => after);
+    notify('success', message, {
+      label: 'Undo',
+      run: () => {
+        // Only while nothing else changed since: restoring `before` on top of
+        // later edits would silently throw those away.
+        if (galleryRef.current !== after) {
+          notify(
+            'error',
+            'Could not undo: the page structure changed since. Nothing is saved yet.',
+          );
+          return;
+        }
+        edit(() => before);
+      },
     });
-    markDirty();
   }
 
-  // ── Section Management ────────────────────────────────────────
-  function addSection(subpageIndex: number) {
-    setGallery((g) => {
-      const subpages = [...g.subpages];
-      const sp = { ...subpages[subpageIndex] };
-      sp.sections = [...(sp.sections || []), { title: 'New Section', albums: [] }];
-      subpages[subpageIndex] = sp;
-      return { ...g, subpages };
-    });
-    markDirty();
-  }
+  const removeStandaloneAlbum = (index: number) =>
+    removeWithUndo('Album removed.', (g) => ops.removeAlbum(g, { type: 'standalone' }, index));
 
-  function removeSection(subpageIndex: number, sectionIndex: number) {
-    setGallery((g) => {
-      const subpages = [...g.subpages];
-      const sp = { ...subpages[subpageIndex] };
-      sp.sections = (sp.sections || []).filter((_, i) => i !== sectionIndex);
-      subpages[subpageIndex] = sp;
-      return { ...g, subpages };
-    });
-    markDirty();
-  }
+  const removeSubpageAlbum = (subpageIndex: number, albumIndex: number) =>
+    removeWithUndo('Album removed from the page.', (g) =>
+      ops.removeAlbum(g, { type: 'subpage', subpageIndex }, albumIndex),
+    );
 
-  function updateSection(subpageIndex: number, sectionIndex: number, updates: Partial<Section>) {
-    setGallery((g) => {
-      const subpages = [...g.subpages];
-      const sp = { ...subpages[subpageIndex] };
-      const sections = [...(sp.sections || [])];
-      sections[sectionIndex] = { ...sections[sectionIndex], ...updates };
-      sp.sections = sections;
-      subpages[subpageIndex] = sp;
-      return { ...g, subpages };
-    });
-    markDirty();
-  }
+  const removeSectionAlbum = (subpageIndex: number, sectionIndex: number, albumIndex: number) =>
+    removeWithUndo('Album removed from the section.', (g) =>
+      ops.removeAlbum(g, { type: 'section', subpageIndex, sectionIndex }, albumIndex),
+    );
 
-  // ── Album Removal ────────────────────────────────────────────
-  // Confirmed like removeSubpage: an album entry carries its grid overrides,
-  // cover asset and manual assetOrder with it, there is no undo stack in the
-  // builder, and the only escape from an accidental click used to be
-  // reloading the page — which discards every other unsaved edit too (#597).
-  function removeStandaloneAlbum(index: number) {
-    if (!confirm('Remove this album from the gallery?')) return;
-    setGallery((g) => ({
-      ...g,
-      albums: g.albums.filter((_, i) => i !== index),
-    }));
-    markDirty();
-  }
-
-  function removeSubpageAlbum(subpageIndex: number, albumIndex: number) {
-    if (!confirm('Remove this album from the subpage?')) return;
-    setGallery((g) => {
-      const subpages = [...g.subpages];
-      const sp = { ...subpages[subpageIndex] };
-      sp.albums = sp.albums.filter((_, i) => i !== albumIndex);
-      subpages[subpageIndex] = sp;
-      return { ...g, subpages };
-    });
-    markDirty();
-  }
-
-  function removeSectionAlbum(subpageIndex: number, sectionIndex: number, albumIndex: number) {
-    if (!confirm('Remove this album from the section?')) return;
-    setGallery((g) => {
-      const subpages = [...g.subpages];
-      const sp = { ...subpages[subpageIndex] };
-      const sections = [...(sp.sections || [])];
-      const sec = { ...sections[sectionIndex] };
-      sec.albums = sec.albums.filter((_, i) => i !== albumIndex);
-      sections[sectionIndex] = sec;
-      sp.sections = sections;
-      subpages[subpageIndex] = sp;
-      return { ...g, subpages };
-    });
-    markDirty();
-  }
-
-  // ── Hero Management ──────────────────────────────────────────
-  function removeHero(index: number) {
-    if (!confirm('Remove this photo from the home page hero?')) return;
-    setGallery((g) => ({
-      ...g,
-      hero: g.hero.filter((_, i) => i !== index),
-    }));
-    markDirty();
-  }
+  const removeHero = (index: number) =>
+    removeWithUndo('Hero photo removed.', (g) => ops.removeHero(g, index));
 
   // ── Helpers ──────────────────────────────────────────────────
   function getAlbumName(id: string): string {
@@ -796,6 +442,28 @@ export default function PageBuilder() {
       }
     }
     return null;
+  }
+
+  /** The album an open drawer edits, with the callbacks the drawer needs. */
+  function getEditingAlbumInfo(addr: ActiveEditAlbumAddress) {
+    const album = ops.albumsAt(gallery, addr)?.[addr.albumIndex];
+    if (!album) return null;
+    return {
+      album,
+      name: getAlbumName(album.id),
+      count: getAlbumCount(album.id),
+      thumbnailId: getAlbumThumbnailId(album.id),
+      onUpdate: (updates: Partial<AlbumEntry>) =>
+        edit((g) => ops.updateAlbum(g, addr, addr.albumIndex, updates)),
+      onRemove: () => {
+        if (addr.type === 'standalone') removeStandaloneAlbum(addr.albumIndex);
+        else if (addr.type === 'subpage') removeSubpageAlbum(addr.subpageIndex!, addr.albumIndex);
+        else removeSectionAlbum(addr.subpageIndex!, addr.sectionIndex!, addr.albumIndex);
+        // The drawer is addressed by index and would otherwise show whichever
+        // album slid into this slot.
+        setEditingAlbumAddress(null);
+      },
+    };
   }
 
   // ── Render ───────────────────────────────────────────────────
@@ -875,7 +543,7 @@ export default function PageBuilder() {
       <SaveBar
         dirty={dirty}
         saving={saving}
-        saveMessage={saveMessage}
+        status={saveStatus}
         onSave={handleSave}
         label="Save Changes"
         showPreview
@@ -889,213 +557,272 @@ export default function PageBuilder() {
         onDismiss={draft.dismiss}
       />
 
-      {/* Search Bar */}
-      <div className="builder-search-container">
-        <div className="builder-search-wrapper">
-          <span className="builder-search-icon">
-            <IconSearch size={14} />
-          </span>
-          <input
-            type="text"
-            className="builder-search-input"
-            placeholder="Search albums or subpages..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          {searchQuery && (
+      <div className="pb-split">
+        {/* Structure: everything on the site, always visible (UX stage 4). */}
+        <aside className="pb-tree" aria-label="Page structure">
+          {/* Search Bar */}
+          <div className="builder-search-container">
+            <div className="builder-search-wrapper">
+              <span className="builder-search-icon">
+                <IconSearch size={14} />
+              </span>
+              <input
+                type="search"
+                aria-label="Search albums or subpages"
+                className="builder-search-input"
+                placeholder="Search albums or subpages..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  className="builder-search-clear"
+                  onClick={() => setSearchQuery('')}
+                  title="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="pb-group">
+            <div className="pb-group-head">
+              <span>Home page</span>
+            </div>
             <button
-              className="builder-search-clear"
-              onClick={() => setSearchQuery('')}
-              title="Clear search"
+              type="button"
+              className={`pb-row-main pb-row-solo ${expandedSubpage === null && overview === 'hero' ? 'active' : ''}`}
+              onClick={() => {
+                setExpandedSubpage(null);
+                setOverview('hero');
+              }}
             >
-              ×
+              <span className="pb-row-thumb">
+                {gallery.hero[0] ? (
+                  <img src={`/api/admin/thumbnail/${gallery.hero[0]}`} alt="" loading="lazy" />
+                ) : (
+                  <IconHome size={14} />
+                )}
+              </span>
+              <span className="pb-row-name">Hero photos</span>
+              <span className="pb-row-count">{gallery.hero.length}</span>
             </button>
+          </div>
+
+          <div className="pb-group">
+            <div className="pb-group-head">
+              <span>Subpages</span>
+              <span>
+                {gallery.subpages.filter((sp) => sp.enabled !== false).length} of{' '}
+                {gallery.subpages.length} live
+              </span>
+            </div>
+            {gallery.subpages.length > 0 && filteredSubpages.length === 0 && (
+              <p className="empty-hint">No matching subpages.</p>
+            )}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleSubpageDragEnd}
+            >
+              <SortableContext
+                items={filteredSubpages.map(({ index }) => `subpage-${index}`)}
+                strategy={verticalListSortingStrategy}
+              >
+                {filteredSubpages.map(({ sp, index }) => (
+                  <SortableSubpageRow
+                    key={`subpage-${index}`}
+                    sp={sp}
+                    spIndex={index}
+                    isActive={expandedSubpage === index}
+                    onClick={() => setExpandedSubpage(index)}
+                    getFirstThumb={getFirstSubpageThumb}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+            <button
+              type="button"
+              className="pb-add"
+              onClick={() => {
+                addSubpage();
+                setExpandedSubpage(gallery.subpages.length);
+              }}
+            >
+              <IconPlus size={13} /> New subpage
+            </button>
+          </div>
+
+          <div className="pb-group">
+            <div className="pb-group-head">
+              <span>Standalone albums</span>
+            </div>
+            <button
+              type="button"
+              className={`pb-row-main pb-row-solo ${expandedSubpage === null && overview === 'albums' ? 'active' : ''}`}
+              onClick={() => {
+                setExpandedSubpage(null);
+                setOverview('albums');
+              }}
+            >
+              <span className="pb-row-thumb">
+                <IconCamera size={14} />
+              </span>
+              <span className="pb-row-name">On the home page</span>
+              <span className="pb-row-count">{gallery.albums.length}</span>
+            </button>
+          </div>
+        </aside>
+
+        {/* The selected entry, edited in place instead of in an overlay. */}
+        <div className="pb-panel">
+          {expandedSubpage !== null && gallery.subpages[expandedSubpage] ? (
+            <>
+              <SubpageDrawer
+                sp={gallery.subpages[expandedSubpage]}
+                spIndex={expandedSubpage}
+                kickerIndex={ops.enabledPosition(gallery, expandedSubpage)}
+                immichAlbums={immichAlbums}
+                sensors={sensors}
+                drawerMode={drawerMode}
+                onDrawerModeChange={setDrawerMode}
+                onClose={() => {
+                  setExpandedSubpage(null);
+                  setLinkedAlbumId(null);
+                }}
+                updateSubpage={updateSubpage}
+                removeSubpage={removeSubpage}
+                addSection={addSection}
+                removeSection={removeSection}
+                updateSection={updateSection}
+                removeSubpageAlbum={removeSubpageAlbum}
+                removeSectionAlbum={removeSectionAlbum}
+                onAlbumDragEnd={handleSubpageAlbumDragEnd(expandedSubpage)}
+                onPickAlbum={setPickerTarget}
+                onEditAlbum={setEditingAlbumAddress}
+                onPickHero={setHeroPickerTarget}
+                getAlbumName={getAlbumName}
+                getAlbumCount={getAlbumCount}
+                getAlbumThumbnailId={getAlbumThumbnailId}
+                highlightedAlbumId={linkedAlbumId}
+                inline
+              />
+            </>
+          ) : overview === 'albums' ? (
+            <>
+              {/* Standalone Albums */}
+              <section className="builder-section">
+                <div className="builder-section-header">
+                  <h2>
+                    <IconCamera />
+                    Standalone Albums
+                  </h2>
+                  <button
+                    className="admin-btn admin-btn-sm"
+                    onClick={() => setPickerTarget({ type: 'standalone' })}
+                  >
+                    + Add Album
+                  </button>
+                </div>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleAlbumDragEnd}
+                >
+                  <SortableContext
+                    items={filteredAlbums.map((a) => {
+                      const originalIndex = gallery.albums.findIndex((x) => x.id === a.id);
+                      return `album-${a.id}-${originalIndex}`;
+                    })}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="album-list">
+                      {filteredAlbums.length === 0 && (
+                        <p className="empty-hint">
+                          {searchQuery
+                            ? 'No matching standalone albums found.'
+                            : 'No standalone albums. These show directly on the homepage.'}
+                        </p>
+                      )}
+                      {filteredAlbums.map((album) => {
+                        const originalIndex = gallery.albums.findIndex((a) => a.id === album.id);
+                        return (
+                          <SortableAlbumCard
+                            key={`${album.id}-${originalIndex}`}
+                            album={album}
+                            index={originalIndex}
+                            name={getAlbumName(album.id)}
+                            count={getAlbumCount(album.id)}
+                            thumbnailId={getAlbumThumbnailId(album.id)}
+                            onRemove={() => removeStandaloneAlbum(originalIndex)}
+                            onEdit={() =>
+                              setEditingAlbumAddress({
+                                type: 'standalone',
+                                albumIndex: originalIndex,
+                              })
+                            }
+                          />
+                        );
+                      })}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              </section>
+            </>
+          ) : (
+            <>
+              {/* Hero Section */}
+              <section className="builder-section">
+                <div className="builder-section-header">
+                  <h2>
+                    <IconHome /> Homepage Hero
+                  </h2>
+                  <button
+                    className="admin-btn admin-btn-sm"
+                    onClick={() =>
+                      setHeroPickerTarget({
+                        onSelect: handleHeroSelect,
+                        currentAssetIds: gallery.hero,
+                        title: 'Pick Hero Image for Homepage',
+                      })
+                    }
+                  >
+                    <IconPlus size={14} /> Add Hero
+                  </button>
+                </div>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleHeroDragEnd}
+                >
+                  <SortableContext
+                    items={gallery.hero.map((_, i) => `hero-${i}`)}
+                    strategy={horizontalListSortingStrategy}
+                  >
+                    <div className="hero-grid">
+                      {gallery.hero.length === 0 && (
+                        <p className="empty-hint">
+                          No hero images configured. Add photos to show a hero carousel on the
+                          homepage.
+                        </p>
+                      )}
+                      {gallery.hero.map((id, i) => (
+                        <SortableHeroTile
+                          key={`hero-${i}`}
+                          id={id}
+                          index={i}
+                          onRemove={() => removeHero(i)}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              </section>
+            </>
           )}
         </div>
       </div>
-
-      {/* Hero Section */}
-      <section className="builder-section">
-        <div className="builder-section-header">
-          <h2>
-            <IconHome /> Homepage Hero
-          </h2>
-          <button
-            className="admin-btn admin-btn-sm"
-            onClick={() =>
-              setHeroPickerTarget({
-                onSelect: handleHeroSelect,
-                currentAssetIds: gallery.hero,
-                title: 'Pick Hero Image for Homepage',
-              })
-            }
-          >
-            <IconPlus size={14} /> Add Hero
-          </button>
-        </div>
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleHeroDragEnd}
-        >
-          <SortableContext
-            items={gallery.hero.map((_, i) => `hero-${i}`)}
-            strategy={horizontalListSortingStrategy}
-          >
-            <div className="hero-grid">
-              {gallery.hero.length === 0 && (
-                <p className="empty-hint">
-                  No hero images configured. Add photos to show a hero carousel on the homepage.
-                </p>
-              )}
-              {gallery.hero.map((id, i) => (
-                <SortableHeroTile
-                  key={`hero-${i}`}
-                  id={id}
-                  index={i}
-                  onRemove={() => removeHero(i)}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
-      </section>
-
-      {/* Standalone Albums */}
-      <section className="builder-section">
-        <div className="builder-section-header">
-          <h2>
-            <IconCamera />
-            Standalone Albums
-          </h2>
-          <button
-            className="admin-btn admin-btn-sm"
-            onClick={() => setPickerTarget({ type: 'standalone' })}
-          >
-            + Add Album
-          </button>
-        </div>
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleAlbumDragEnd}
-        >
-          <SortableContext
-            items={filteredAlbums.map((a) => {
-              const originalIndex = gallery.albums.findIndex((x) => x.id === a.id);
-              return `album-${a.id}-${originalIndex}`;
-            })}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="album-list">
-              {filteredAlbums.length === 0 && (
-                <p className="empty-hint">
-                  {searchQuery
-                    ? 'No matching standalone albums found.'
-                    : 'No standalone albums. These show directly on the homepage.'}
-                </p>
-              )}
-              {filteredAlbums.map((album) => {
-                const originalIndex = gallery.albums.findIndex((a) => a.id === album.id);
-                return (
-                  <SortableAlbumCard
-                    key={`${album.id}-${originalIndex}`}
-                    album={album}
-                    index={originalIndex}
-                    name={getAlbumName(album.id)}
-                    count={getAlbumCount(album.id)}
-                    thumbnailId={getAlbumThumbnailId(album.id)}
-                    onRemove={() => removeStandaloneAlbum(originalIndex)}
-                    onEdit={() =>
-                      setEditingAlbumAddress({ type: 'standalone', albumIndex: originalIndex })
-                    }
-                  />
-                );
-              })}
-            </div>
-          </SortableContext>
-        </DndContext>
-      </section>
-
-      {/* Subpages */}
-      <section className="builder-section">
-        <div className="builder-section-header">
-          <h2>
-            <IconFolder />
-            Subpages
-          </h2>
-          <button className="admin-btn admin-btn-sm" onClick={addSubpage}>
-            + New Subpage
-          </button>
-        </div>
-
-        {gallery.subpages.length === 0 && (
-          <p className="empty-hint">
-            No subpages. Create one to group albums under a custom URL path.
-          </p>
-        )}
-
-        {gallery.subpages.length > 0 && filteredSubpages.length === 0 && (
-          <p className="empty-hint">No matching subpages found.</p>
-        )}
-
-        {/* Collapsed overview grid with DnD */}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleSubpageDragEnd}
-        >
-          <SortableContext
-            items={filteredSubpages.map(({ index }) => `subpage-${index}`)}
-            strategy={horizontalListSortingStrategy}
-          >
-            <div className="subpage-tiles">
-              {filteredSubpages.map(({ sp, index }) => (
-                <SortableSubpageTile
-                  key={`subpage-${index}`}
-                  sp={sp}
-                  spIndex={index}
-                  isActive={expandedSubpage === index}
-                  onClick={() => setExpandedSubpage(expandedSubpage === index ? null : index)}
-                  getFirstThumb={getFirstSubpageThumb}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
-
-        {/* Expanded subpage detail (Slide-Over Drawer) */}
-        {expandedSubpage !== null && gallery.subpages[expandedSubpage] && (
-          <SubpageDrawer
-            sp={gallery.subpages[expandedSubpage]}
-            spIndex={expandedSubpage}
-            kickerIndex={enabledPosition(expandedSubpage)}
-            immichAlbums={immichAlbums}
-            sensors={sensors}
-            drawerMode={drawerMode}
-            onDrawerModeChange={setDrawerMode}
-            onClose={() => {
-              setExpandedSubpage(null);
-              setLinkedAlbumId(null);
-            }}
-            updateSubpage={updateSubpage}
-            removeSubpage={removeSubpage}
-            addSection={addSection}
-            removeSection={removeSection}
-            updateSection={updateSection}
-            removeSubpageAlbum={removeSubpageAlbum}
-            removeSectionAlbum={removeSectionAlbum}
-            onAlbumDragEnd={handleSubpageAlbumDragEnd(expandedSubpage)}
-            onPickAlbum={setPickerTarget}
-            onEditAlbum={setEditingAlbumAddress}
-            onPickHero={setHeroPickerTarget}
-            getAlbumName={getAlbumName}
-            getAlbumCount={getAlbumCount}
-            getAlbumThumbnailId={getAlbumThumbnailId}
-            highlightedAlbumId={linkedAlbumId}
-          />
-        )}
-      </section>
 
       {/* Album Picker Modal */}
       {pickerTarget && (
@@ -1103,7 +830,7 @@ export default function PageBuilder() {
           albums={immichAlbums}
           onSelect={handlePickAlbum}
           onClose={() => setPickerTarget(null)}
-          usedAlbumIds={getAllUsedAlbumIds()}
+          usedAlbumIds={ops.usedAlbumIds(gallery)}
         />
       )}
 
@@ -1146,96 +873,4 @@ export default function PageBuilder() {
       )}
     </div>
   );
-
-  function getEditingAlbumInfo(addr: ActiveEditAlbumAddress) {
-    let album: AlbumEntry;
-    let name: string;
-    let count: number;
-    let thumbnailId: string | null;
-    let onUpdate: (updates: Partial<AlbumEntry>) => void;
-    let onRemove: () => void;
-
-    if (addr.type === 'standalone') {
-      album = gallery.albums[addr.albumIndex];
-      if (!album) return null;
-      name = getAlbumName(album.id);
-      count = getAlbumCount(album.id);
-      thumbnailId = getAlbumThumbnailId(album.id);
-      onUpdate = (updates) => {
-        setGallery((g) => {
-          const albums = [...g.albums];
-          albums[addr.albumIndex] = { ...albums[addr.albumIndex], ...updates };
-          return { ...g, albums };
-        });
-        markDirty();
-      };
-      onRemove = () => {
-        removeStandaloneAlbum(addr.albumIndex);
-      };
-    } else if (addr.type === 'subpage') {
-      const sp = gallery.subpages[addr.subpageIndex!];
-      if (!sp) return null;
-      album = sp.albums[addr.albumIndex];
-      if (!album) return null;
-      name = getAlbumName(album.id);
-      count = getAlbumCount(album.id);
-      thumbnailId = getAlbumThumbnailId(album.id);
-      onUpdate = (updates) => {
-        setGallery((g) => {
-          const subpages = [...g.subpages];
-          const sp2 = { ...subpages[addr.subpageIndex!] };
-          const albums = [...sp2.albums];
-          albums[addr.albumIndex] = { ...albums[addr.albumIndex], ...updates };
-          sp2.albums = albums;
-          subpages[addr.subpageIndex!] = sp2;
-          return { ...g, subpages };
-        });
-        markDirty();
-      };
-      onRemove = () => {
-        removeSubpageAlbum(addr.subpageIndex!, addr.albumIndex);
-      };
-    } else {
-      const sp = gallery.subpages[addr.subpageIndex!];
-      if (!sp) return null;
-      const sec = sp.sections?.[addr.sectionIndex!];
-      if (!sec) return null;
-      album = sec.albums[addr.albumIndex];
-      if (!album) return null;
-      name = getAlbumName(album.id);
-      count = getAlbumCount(album.id);
-      thumbnailId = getAlbumThumbnailId(album.id);
-      onUpdate = (updates) => {
-        setGallery((g) => {
-          const subpages = [...g.subpages];
-          const sp2 = { ...subpages[addr.subpageIndex!] };
-          const sections = [...(sp2.sections || [])];
-          const sec2 = { ...sections[addr.sectionIndex!] };
-          const albums = [...sec2.albums];
-          albums[addr.albumIndex] = { ...albums[addr.albumIndex], ...updates };
-          sec2.albums = albums;
-          sections[addr.sectionIndex!] = sec2;
-          sp2.sections = sections;
-          subpages[addr.subpageIndex!] = sp2;
-          return { ...g, subpages };
-        });
-        markDirty();
-      };
-      onRemove = () => {
-        removeSectionAlbum(addr.subpageIndex!, addr.sectionIndex!, addr.albumIndex);
-      };
-    }
-
-    return { album, name, count, thumbnailId, onUpdate, onRemove };
-  }
-
-  function getAllUsedAlbumIds(): Set<string> {
-    const ids = new Set<string>();
-    gallery.albums.forEach((a) => ids.add(a.id));
-    gallery.subpages.forEach((sp) => {
-      sp.albums.forEach((a) => ids.add(a.id));
-      sp.sections?.forEach((sec) => sec.albums.forEach((a) => ids.add(a.id)));
-    });
-    return ids;
-  }
 }

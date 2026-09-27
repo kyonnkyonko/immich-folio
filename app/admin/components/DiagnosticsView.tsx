@@ -7,6 +7,7 @@ import * as Icons from './Icons';
 import { DOCTOR_LEVEL_EVENT } from './systemHealth';
 import type { DoctorFinding, DoctorLevel } from '@/lib/admin/doctor';
 import type { AltTextReport } from '@/lib/admin/alt-text';
+import PageHeader from './PageHeader';
 
 /**
  * Diagnostics as a page (/admin/diagnostics).
@@ -40,8 +41,12 @@ type AltTextData = AltTextReport & {
 /** Which group a doctor check belongs to. An unknown id lands in Content. */
 const GROUPS: { id: string; title: string; checks: string[] }[] = [
   { id: 'connection', title: 'Connection', checks: ['immich-api', 'album-ids'] },
-  { id: 'security', title: 'Security', checks: ['auth-secret', 'passwords', 'proxy-hops'] },
-  { id: 'content', title: 'Content', checks: ['albums-shared', 'content-writable', 'alt-text'] },
+  { id: 'security', title: 'Security', checks: ['auth-secret', 'passwords', 'proxy-hops', 'cdn'] },
+  {
+    id: 'content',
+    title: 'Content',
+    checks: ['albums-shared', 'content-writable', 'alt-text', 'legal', 'contact', 'privacy'],
+  },
 ];
 
 const LEVEL_LABEL: Record<DoctorLevel, string> = { ok: 'OK', warn: 'Check', error: 'Problem' };
@@ -56,9 +61,13 @@ const FIXES: Record<string, { label: string; href: string }> = {
     href: `${DOCS}/README.md#environment-variables-envlocal`,
   },
   'proxy-hops': { label: 'How to set it', href: `${DOCS}/docs/gallery-config.md#trusted-proxies` },
+  cdn: { label: 'CDN setup', href: `${DOCS}/docs/deployment.md#cdn-mode` },
   passwords: { label: 'Open settings', href: '/admin/settings/security' },
   'album-ids': { label: 'Open pages', href: '/admin/pages' },
   'albums-shared': { label: 'Open pages', href: '/admin/pages' },
+  legal: { label: 'Open settings', href: '/admin/settings/legal' },
+  contact: { label: 'Open settings', href: '/admin/settings/legal' },
+  privacy: { label: 'Open settings', href: '/admin/settings/legal' },
   'content-writable': { label: 'How to fix', href: `${DOCS}/docs/admin-panel.md#docker-usage` },
   'immich-api': {
     label: 'API key permissions',
@@ -371,27 +380,26 @@ export default function DiagnosticsView() {
 
   return (
     <div className="diag-page">
-      <div className="diag-head">
-        <div>
-          <h2>{headline}</h2>
-          <p className="diag-sub">
-            {ranAt ? `Last run ${ranAt.toLocaleString()}` : 'Running the checks…'}
-          </p>
-        </div>
-        <div className="diag-actions">
-          <button className="admin-btn admin-btn-sm" onClick={run} disabled={loading}>
-            <Icons.IconRefresh size={14} /> {loading ? 'Checking…' : 'Run again'}
-          </button>
-          <button
-            className="admin-btn admin-btn-sm"
-            onClick={copyReport}
-            disabled={loading || !all.length}
-            title="Markdown, ready to paste into an issue"
-          >
-            <Icons.IconCopy size={14} /> {copied ? 'Copied' : 'Copy report'}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        kicker="System"
+        title={headline}
+        description={ranAt ? `Last run ${ranAt.toLocaleString()}` : 'Running the checks…'}
+        actions={
+          <>
+            <button className="admin-btn admin-btn-sm" onClick={run} disabled={loading}>
+              <Icons.IconRefresh size={14} /> {loading ? 'Checking…' : 'Run again'}
+            </button>
+            <button
+              className="admin-btn admin-btn-sm"
+              onClick={copyReport}
+              disabled={loading || !all.length}
+              title="Markdown, ready to paste into an issue"
+            >
+              <Icons.IconCopy size={14} /> {copied ? 'Copied' : 'Copy report'}
+            </button>
+          </>
+        }
+      />
 
       {error && <div className="admin-error">{error}</div>}
 

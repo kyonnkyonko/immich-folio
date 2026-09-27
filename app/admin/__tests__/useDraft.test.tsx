@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { renderHook, act, render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { useDraft, readDraft } from '../components/useDraft';
+import { useDraft, readDraft, writeDraft, holdsPlaintextPassword } from '../components/useDraft';
 import DraftNotice from '../components/DraftNotice';
 
 /**
@@ -68,6 +68,25 @@ describe('useDraft', () => {
     });
     expect(taken).toBe('my edit');
     expect(second.result.current.status).toBe('restored');
+  });
+
+  it('keeps a held-back draft while the editor shows the server state', () => {
+    const first = mount();
+    act(() => void first.result.current.load('server-v1'));
+    first.rerender({ value: 'my edit', dirty: true });
+    first.unmount();
+
+    // The editor applies the server state after a conflict and is not dirty.
+    // That render used to clear the draft "Restore my changes" then reads.
+    const second = mount();
+    act(() => void second.result.current.load('server-v2'));
+    second.rerender({ value: 'server v2', dirty: false });
+
+    let taken: string | null = null;
+    act(() => {
+      taken = second.result.current.takeConflicting();
+    });
+    expect(taken).toBe('my edit');
   });
 
   it('forgets the draft once saved, and bases new edits on the saved state', () => {
@@ -153,5 +172,28 @@ describe('DraftNotice', () => {
     expect(h.onRestore).toHaveBeenCalled();
     fireEvent.click(screen.getByText('Discard them'));
     expect(h.onDiscard).toHaveBeenCalled();
+  });
+});
+
+describe('drafts never keep a typed password', () => {
+  it('detects plaintext passwords in settings, gallery and journal drafts', () => {
+    expect(holdsPlaintextPassword({ sitePassword: 'hunter2' })).toBe(true);
+    expect(holdsPlaintextPassword({ subpages: [{ slug: 'x', password: 'pw' }] })).toBe(true);
+    expect(holdsPlaintextPassword('---\ntitle: A\npassword: pw\n---\nBody')).toBe(true);
+  });
+
+  it('lets hashes and empty values through', () => {
+    expect(holdsPlaintextPassword({ sitePassword: 'scrypt:aa:bb' })).toBe(false);
+    expect(holdsPlaintextPassword({ sitePassword: '' })).toBe(false);
+    expect(holdsPlaintextPassword('---\npassword: scrypt:aa:bb\n---\n')).toBe(false);
+    expect(holdsPlaintextPassword('No frontmatter, password: pw')).toBe(false);
+  });
+
+  it('drops the draft instead of writing the password to sessionStorage', () => {
+    writeDraft('settings', { base: 'b', value: { title: 'x' } });
+    expect(readDraft('settings')).not.toBeNull();
+    writeDraft('settings', { base: 'b', value: { title: 'x', sitePassword: 'hunter2' } });
+    expect(readDraft('settings')).toBeNull();
+    expect(JSON.stringify(window.sessionStorage)).not.toContain('hunter2');
   });
 });

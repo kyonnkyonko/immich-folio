@@ -17,6 +17,7 @@ For the quick path — clone, `npm run dev`, open `/install` — see the
 - [Config Doctor](#config-doctor)
 - [Behaviour when Immich is Unreachable](#behaviour-when-immich-is-unreachable)
 - [Reverse Proxy](#reverse-proxy)
+- [CDN Mode](#cdn-mode)
 
 ## What the Setup Wizard Writes
 
@@ -43,7 +44,8 @@ server, so a typo cannot leave you with an "installed" site that loads no photos
 `IMMICH_API_URL`, `IMMICH_API_KEY`, `AUTH_SECRET` and `ADMIN_PASSWORD` override
 anything in `install.json`, so any of them can be rotated by setting the variable
 — no need to touch the file. `SITE_PASSWORD` works the same way over
-`sitePassword` in `settings.yaml`.
+`sitePassword` in `settings.yaml`, and so does `CONTACT_NOTIFY_URL` over
+`contact.notifyUrl`.
 
 Set all of them up front and the wizard never appears, which is the usual choice
 for an infrastructure-as-code deployment.
@@ -112,7 +114,9 @@ Checks an installation from the terminal and prints what it finds: whether
 `settings.yaml` parse, whether Immich answers the three calls Folio depends on,
 whether every published album ID still exists in Immich (and is shared there),
 whether any password is still stored in plaintext or as an unusable bcrypt
-hash, and whether `content/` can be written to.
+hash, whether an enabled Impressum has a name, address, email and a second
+contact channel, whether the contact form notifies anyone, and whether
+`content/` can be written to.
 
 This is the same set of checks as the **Diagnostics** page in `/admin`, but it
 needs neither a running app nor an admin password — which is the point. It is
@@ -200,3 +204,59 @@ and Traefik send it on their own; nginx needs the
 Opening the app over plain HTTP, e.g. `http://server:7211` on a home network,
 works too: the cookies are then set without `Secure`, since a browser would
 discard them otherwise.
+
+## CDN Mode
+
+With `CDN_URL` set, every photo and video URL on the site points at a pull CDN
+instead of this server:
+
+```env
+CDN_URL=https://cdn.example.com
+```
+
+```
+https://cdn.example.com/api/image/v2:…?size=preview&w=1080&q=75
+```
+
+The CDN uses Immich Folio as its origin. The first request for a photo is a
+cache miss and goes to `/api/image` as usual; every request after that is
+answered by the CDN and never reaches your server or the Immich box behind it.
+On a home connection with a slow uplink, that is the difference between a
+gallery that crawls and one that does not.
+
+**Setting up the CDN.** Create a pull zone (Bunny), a distribution
+(CloudFront) or a CNAME'd subdomain (Cloudflare) whose origin is your public
+Folio URL, then:
+
+- **Cache `/api/image/*` and `/api/video/*`**, and nothing else. Pages are
+  rendered per request, and other routes check cookies.
+- **Include the full query string in the cache key.** `size`, `w`, `q` and the
+  `IMAGE_CACHE_VERSION` buster `v` all select a different file.
+- **Respect the origin's `Cache-Control`.** Photos come back
+  `public, max-age=31536000, immutable`; errors (429, 503, 404) come back
+  `no-store` and must not be cached.
+- **Forward `Range` requests** for videos, so seeking works.
+
+**Rate limiting.** A cache miss arrives from a CDN edge, not from the visitor.
+Set `TRUSTED_PROXY_HOPS` to count the CDN as a proxy (Cloudflare → Caddy = 2)
+so the limiter reads the visitor's IP from `X-Forwarded-For`; otherwise a
+handful of edges share one bucket. The [Config Doctor](#config-doctor) warns
+when CDN mode is on with `TRUSTED_PROXY_HOPS=0`.
+
+**What stays on this server:** pages, `/_next` assets, EXIF, the map,
+downloads, the admin panel and the Open Graph images. These are either small or
+carry a cookie check a CDN would bypass.
+
+**Site passwords switch it off.** On a password-protected site, the image
+route checks the visitor's unlock cookie, and a CDN would answer from its cache
+without asking. So while a site password is set, photos stay on this server
+whatever `CDN_URL` says, and the diagnostics page says so. Gallery (per-page)
+passwords are unaffected: they already protect the page that holds the photo
+links, not the image URLs themselves.
+
+**Changing a photo.** A CDN keeps immutable responses for as long as a browser
+does. Bump `IMAGE_CACHE_VERSION` after regenerating thumbnails in Immich, which
+changes every URL at once, or purge the CDN.
+
+The Content-Security-Policy allows the CDN's origin for `img-src` and
+`media-src` automatically.

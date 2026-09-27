@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  checkCdn,
   checkAuthSecret,
   checkProxyHops,
   countForwardedHops,
@@ -9,6 +10,9 @@ import {
   checkPasswords,
   checkWritable,
   checkImmichCalls,
+  checkContact,
+  checkLegal,
+  checkPrivacy,
   worstLevel,
 } from '../admin/doctor';
 
@@ -303,5 +307,140 @@ describe('worstLevel', () => {
         { id: 'b', level: 'error', title: '', detail: '' },
       ]),
     ).toBe('error');
+  });
+});
+
+describe('checkCdn', () => {
+  it('stays silent without CDN_URL', () => {
+    expect(checkCdn(undefined, false, 1)).toBeNull();
+  });
+
+  it('warns that a site password keeps photos off the CDN', () => {
+    const finding = checkCdn('https://cdn.example.net', true, 1)!;
+    expect(finding.level).toBe('warn');
+    expect(finding.detail).toMatch(/password/);
+  });
+
+  it('warns when the rate limiter would count CDN edges', () => {
+    const finding = checkCdn('https://cdn.example.net', false, 0)!;
+    expect(finding.level).toBe('warn');
+    expect(finding.title).toMatch(/TRUSTED_PROXY_HOPS/);
+  });
+
+  it('reports ok with a proxy chain configured', () => {
+    const finding = checkCdn('https://cdn.example.net', false, 2)!;
+    expect(finding.level).toBe('ok');
+    expect(finding.detail).toContain('https://cdn.example.net');
+  });
+});
+
+describe('checkLegal', () => {
+  const complete = {
+    enabled: true,
+    name: 'Ralf',
+    address: 'Street 1',
+    zipCity: '10247 Berlin',
+    email: 'mail@example.com',
+    contactUrl: 'https://example.com/contact',
+  };
+
+  it('returns nothing while the Impressum is switched off or absent', () => {
+    expect(checkLegal({ ...complete, enabled: false })).toBeNull();
+    expect(checkLegal(undefined)).toBeNull();
+  });
+
+  it('passes with name, address, email and a second channel', () => {
+    expect(checkLegal(complete)?.level).toBe('ok');
+    expect(checkLegal({ ...complete, contactUrl: undefined, phone: '+49 30 1' })?.level).toBe('ok');
+  });
+
+  it('names the missing address fields', () => {
+    const f = checkLegal({ ...complete, address: '', zipCity: ' ' })!;
+    expect(f.level).toBe('warn');
+    expect(f.detail).toContain('street address, ZIP and city');
+  });
+
+  it('asks for an email address', () => {
+    expect(checkLegal({ ...complete, email: undefined })!.detail).toContain('No email address');
+  });
+
+  it('flags email as the only contact channel', () => {
+    const f = checkLegal({ ...complete, contactUrl: undefined })!;
+    expect(f.level).toBe('warn');
+    expect(f.detail).toContain('only contact channel');
+  });
+
+  it('reports a contact URL the page drops, and does not count it as a channel', () => {
+    const f = checkLegal({ ...complete, contactUrl: 'javascript:alert(1)' })!;
+    expect(f.level).toBe('warn');
+    expect(f.title).toContain('2 gaps');
+    expect(f.detail).toContain('ignored');
+    expect(f.detail).toContain('only contact channel');
+  });
+
+  it('tolerates hand-edited YAML with the wrong types', () => {
+    const f = checkLegal({ ...complete, name: 42, email: ['a'] })!;
+    expect(f.level).toBe('warn');
+    expect(f.detail).toContain('Missing: name');
+  });
+});
+
+describe('checkLegal with the built-in contact form', () => {
+  const emailOnly = {
+    enabled: true,
+    name: 'Ralf',
+    address: 'Street 1',
+    zipCity: '10247 Berlin',
+    email: 'mail@example.com',
+  };
+
+  it('counts the form as the second contact channel', () => {
+    expect(checkLegal(emailOnly)?.level).toBe('warn');
+    expect(checkLegal(emailOnly, true)?.level).toBe('ok');
+  });
+});
+
+describe('checkContact', () => {
+  it('returns nothing while the form is off', () => {
+    expect(checkContact({ enabled: false })).toBeNull();
+    expect(checkContact(undefined)).toBeNull();
+  });
+
+  it('warns when nobody hears about new messages', () => {
+    expect(checkContact({ enabled: true })?.level).toBe('warn');
+  });
+
+  it('warns about a URL that is not http(s)', () => {
+    const f = checkContact({ enabled: true, notifyUrl: 'ntfy.sh/topic' })!;
+    expect(f.level).toBe('warn');
+    expect(f.title).toContain('ignored');
+  });
+
+  it('is satisfied by the settings value or by CONTACT_NOTIFY_URL', () => {
+    expect(checkContact({ enabled: true, notifyUrl: 'https://ntfy.sh/t' })?.level).toBe('ok');
+    expect(checkContact({ enabled: true }, 'https://ntfy.sh/t')?.level).toBe('ok');
+  });
+});
+
+describe('checkPrivacy', () => {
+  it('stays quiet on a site with no legal pages at all', () => {
+    expect(checkPrivacy({ legalEnabled: false, privacyEnabled: true, hasText: false })).toBeNull();
+  });
+
+  it('warns when the Impressum is on and there is no policy', () => {
+    const f = checkPrivacy({ legalEnabled: true, privacyEnabled: true, hasText: false })!;
+    expect(f.level).toBe('warn');
+    expect(f.detail).toContain('no text');
+  });
+
+  it('warns when the text exists but the page is switched off', () => {
+    const f = checkPrivacy({ legalEnabled: true, privacyEnabled: false, hasText: true })!;
+    expect(f.detail).toContain('switched off');
+  });
+
+  it('is satisfied by a published policy', () => {
+    expect(checkPrivacy({ legalEnabled: true, privacyEnabled: true, hasText: true })?.level).toBe(
+      'ok',
+    );
   });
 });

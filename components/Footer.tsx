@@ -6,15 +6,21 @@
 import Link from 'next/link';
 import { getConfig } from '@/lib/config';
 import { getServerDictionary } from '@/lib/i18n/server';
+import { privacyAvailable } from '@/lib/privacy';
+import EmailLink from './EmailLink';
+import { encodeEmail } from '@/lib/emailObfuscation';
 
 export function Footer() {
   const config = getConfig();
-  const { footer, legal } = config;
+  const { footer, legal, contact } = config;
   const t = getServerDictionary();
+  const privacy = privacyAvailable(config);
 
-  // Don't render if no footer config AND no legal config
+  // Don't render if there is no footer config and no legal or contact page to link
   if (
     !legal.enabled &&
+    !contact.enabled &&
+    !privacy &&
     (!footer || (!footer.name && !footer.instagram && !footer.email && !footer.website))
   ) {
     return null;
@@ -28,6 +34,16 @@ export function Footer() {
           {legal.enabled && (
             <Link href="/impressum" className="footer__legal-link">
               {t.legal.navLabel}
+            </Link>
+          )}
+          {privacy && (
+            <Link href="/privacy" className="footer__legal-link">
+              {t.privacy.navLabel}
+            </Link>
+          )}
+          {contact.enabled && (
+            <Link href="/contact" className="footer__legal-link">
+              {t.contact.navLabel}
             </Link>
           )}
         </div>
@@ -59,7 +75,11 @@ export function Footer() {
             </a>
           )}
           {footer?.email && (
-            <a href={`mailto:${footer.email}`} className="footer__link" aria-label={t.common.email}>
+            <EmailLink
+              encoded={encodeEmail(footer.email)}
+              className="footer__link"
+              aria-label={t.common.email}
+            >
               <svg
                 aria-hidden="true"
                 width="16"
@@ -74,7 +94,7 @@ export function Footer() {
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                 <polyline points="22,6 12,13 2,6" />
               </svg>
-            </a>
+            </EmailLink>
           )}
           {footer?.website && (
             <a

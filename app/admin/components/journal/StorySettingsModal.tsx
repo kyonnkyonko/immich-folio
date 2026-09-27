@@ -2,6 +2,7 @@
 
 import type { ParsedJournal } from '@/lib/journal';
 import type { AssetPickTarget } from './BlockFields';
+import PasswordField from '../fields/PasswordField';
 
 type Frontmatter = ParsedJournal['frontmatter'];
 
@@ -27,6 +28,7 @@ export function StorySettingsModal({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
             <label
+              htmlFor="story-subtitle"
               style={{
                 display: 'block',
                 fontSize: '0.8rem',
@@ -37,6 +39,7 @@ export function StorySettingsModal({
               Subtitle
             </label>
             <input
+              id="story-subtitle"
               type="text"
               className="admin-input"
               value={frontmatter.subtitle || ''}
@@ -48,6 +51,7 @@ export function StorySettingsModal({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div>
               <label
+                htmlFor="story-author"
                 style={{
                   display: 'block',
                   fontSize: '0.8rem',
@@ -58,6 +62,7 @@ export function StorySettingsModal({
                 Author
               </label>
               <input
+                id="story-author"
                 type="text"
                 className="admin-input"
                 value={frontmatter.author || ''}
@@ -67,6 +72,7 @@ export function StorySettingsModal({
             </div>
             <div>
               <label
+                htmlFor="story-publish-date"
                 style={{
                   display: 'block',
                   fontSize: '0.8rem',
@@ -77,6 +83,7 @@ export function StorySettingsModal({
                 Publish Date
               </label>
               <input
+                id="story-publish-date"
                 type="date"
                 className="admin-input"
                 value={frontmatter.date || ''}
@@ -155,12 +162,10 @@ export function StorySettingsModal({
             >
               Password Protection (Optional)
             </label>
-            <input
-              type="password"
-              className="admin-input"
-              value={frontmatter.password || ''}
-              placeholder="Leave empty for public access"
-              onChange={(e) => onChange({ password: e.target.value })}
+            <PasswordField
+              value={frontmatter.password || undefined}
+              onChange={(password) => onChange({ password: password ?? '' })}
+              label="Entry password"
             />
           </div>
 

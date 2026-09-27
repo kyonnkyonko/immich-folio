@@ -1,0 +1,1249 @@
+/* ── Admin redesign, stage 1 (docs/admin-ux-concept.md) ──────────
+   Loaded last from admin.css, so it overrides the earlier sheets rather than
+   rewriting them. Stage 1: the sidebar shell, the overview page, the site's
+   typography and a calmer use of the accent. */
+
+/* ── Tokens ────────────────────────────────────────────────── */
+
+.admin-layout,
+.admin-listbox-popup {
+  /* The site's own fonts (set on <html> by the root layout from the preset).
+     The fallbacks are what the admin used before. */
+  --admin-font: var(
+    --font-sans,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    system-ui,
+    sans-serif
+  );
+  --admin-font-label: var(--font-caption, ui-monospace, 'SF Mono', Menlo, monospace);
+  --admin-bg: #0c0c0c;
+  --admin-bg-raised: #141414;
+  --admin-bg-elevated: #1b1b1b;
+  --admin-bg-input: #101010;
+  --admin-border: #242424;
+  --admin-border-hover: #3a3a3a;
+  --admin-sidebar-bg: #090909;
+  --admin-radius: 4px;
+  --admin-sidebar-width: 232px;
+  font-family: var(--admin-font);
+}
+
+[data-theme='light'] .admin-layout,
+[data-theme='light'] .admin-listbox-popup {
+  --admin-bg: #f6f6f5;
+  --admin-bg-raised: #ffffff;
+  --admin-bg-elevated: #efefee;
+  --admin-bg-input: #ffffff;
+  --admin-border: #e2e2e0;
+  --admin-border-hover: #c8c8c5;
+  --admin-sidebar-bg: #fbfbfa;
+}
+
+.admin-listbox-popup {
+  font-family: var(--admin-font);
+}
+
+/* ── Shell: sidebar + workspace ────────────────────────────── */
+
+.admin-app {
+  display: grid;
+  grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr);
+  flex-direction: unset;
+  min-height: 100vh;
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem 0.75rem 1rem;
+  background: var(--admin-sidebar-bg);
+  border-right: 1px solid var(--admin-border);
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.admin-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.25rem 0.6rem 0.75rem;
+  color: var(--admin-text);
+  text-decoration: none;
+}
+
+/* The square marker the site uses for kickers and the header dot. */
+.admin-brand-mark {
+  width: 10px;
+  height: 10px;
+  background: var(--admin-accent);
+  flex-shrink: 0;
+}
+
+.admin-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.admin-brand-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.admin-brand-sub {
+  font-family: var(--admin-font-label);
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+}
+
+.admin-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.admin-nav-label {
+  padding: 0 0.6rem 0.35rem;
+  font-family: var(--admin-font-label);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.admin-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--admin-radius);
+  color: var(--admin-text-secondary);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.admin-nav-item:hover {
+  color: var(--admin-text);
+  background: var(--admin-bg-raised);
+}
+
+.admin-nav-item.active {
+  color: var(--admin-text);
+  background: var(--admin-bg-elevated);
+}
+
+/* One of the accent's three jobs: where you are. */
+.admin-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -0.75rem;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  transform: translateY(-50%);
+  background: var(--admin-accent);
+}
+
+.admin-nav-icon {
+  display: inline-flex;
+  color: var(--admin-text-muted);
+}
+
+.admin-nav-item.active .admin-nav-icon {
+  color: var(--admin-text);
+}
+
+.admin-nav-text {
+  flex: 1;
+}
+
+.admin-nav-count {
+  min-width: 1.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--admin-accent);
+  color: #fff;
+  font-family: var(--admin-font-label);
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.admin-nav-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--admin-error);
+}
+
+.admin-sidebar-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--admin-border);
+}
+
+.admin-sidebar .status-indicator-container {
+  display: block;
+  margin: 0;
+}
+
+.admin-sidebar .sidebar-status {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* In the sidebar foot the dropdown opens upwards and to the right. */
+.admin-sidebar .status-dropdown {
+  top: auto;
+  bottom: 100%;
+  left: 0;
+  right: auto;
+  margin: 0 0 0.5rem;
+  width: 280px;
+  border-radius: var(--admin-radius);
+}
+
+.admin-sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.admin-side-action {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: none;
+  border-radius: var(--admin-radius);
+  background: none;
+  color: var(--admin-text-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.admin-side-action:hover:not(:disabled) {
+  color: var(--admin-text);
+  background: var(--admin-bg-raised);
+}
+
+.admin-side-action:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.admin-workspace {
+  max-width: 1180px;
+  padding: 2.25rem 2.5rem 6rem;
+  margin: 0;
+}
+
+/* The save bar centres on the workspace, not on the window. */
+.admin-app ~ .floating-save-bar,
+.admin-app .floating-save-bar {
+  left: calc(50% + var(--admin-sidebar-width) / 2);
+}
+
+@media (max-width: 860px) {
+  .admin-app {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-sidebar {
+    position: static;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--admin-border);
+  }
+
+  .admin-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+  }
+
+  .admin-nav-item.active::before {
+    display: none;
+  }
+
+  .admin-workspace {
+    padding: 1.5rem 1rem 6rem;
+  }
+
+  .admin-app .floating-save-bar {
+    left: 50%;
+  }
+}
+
+/* ── Calmer accent ─────────────────────────────────────────── */
+
+/* A switched-on card keeps a hairline; its switch carries the state. A thick
+   accent frame on every active card turned Studio Modern's settings into a
+   wall of red and took the colour's meaning with it. */
+.admin-layout .admin-toggle-card.active {
+  border-color: var(--admin-border-hover);
+  box-shadow: none;
+}
+
+.admin-layout .admin-toggle-card,
+.admin-layout .settings-group,
+.admin-layout .analytics-panel,
+.admin-layout .metric-card,
+.admin-layout .messages-list {
+  border-radius: var(--admin-radius);
+}
+
+/* Section and field labels in the site's caption voice. */
+.admin-layout .admin-field > label,
+.admin-layout .settings-group-title,
+.admin-layout .analytics-section-title h3 {
+  font-family: var(--admin-font-label);
+  letter-spacing: 0.12em;
+}
+
+.admin-layout .settings-section-header h3,
+.admin-layout .analytics-header h2 {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* Section icons stay neutral; the accent is not decoration. */
+.admin-layout .settings-section-header h3 svg,
+.admin-layout .analytics-header h2 svg {
+  color: var(--admin-text-muted);
+}
+
+/* ── Overview ──────────────────────────────────────────────── */
+
+.admin-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.overview-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.overview-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem;
+  font-family: var(--admin-font-label);
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.overview-kicker::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  background: var(--admin-accent);
+}
+
+.overview-title {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.overview-sub {
+  margin: 0.4rem 0 0;
+  color: var(--admin-text-secondary);
+  font-size: 0.9rem;
+}
+
+.overview-section-label {
+  margin: 0 0 0.9rem;
+  font-family: var(--admin-font-label);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.overview-attention {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-bg-raised);
+}
+
+.overview-attention-item {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.95rem 1.1rem;
+  color: var(--admin-text);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.overview-attention-item + .overview-attention-item {
+  border-top: 1px solid var(--admin-border);
+}
+
+.overview-attention-item:hover {
+  background: var(--admin-bg-elevated);
+}
+
+.overview-attention-marker {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+
+.overview-attention-marker.accent {
+  background: var(--admin-accent);
+}
+
+.overview-attention-marker.warn {
+  background: var(--admin-warning);
+}
+
+.overview-attention-marker.error {
+  background: var(--admin-error);
+}
+
+.overview-attention-text {
+  flex: 1;
+}
+
+.overview-attention-detail {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--admin-text-muted);
+  font-size: 0.8rem;
+}
+
+.overview-attention-go {
+  font-family: var(--admin-font-label);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.overview-calm {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border: 1px dashed var(--admin-border);
+  border-radius: var(--admin-radius);
+  color: var(--admin-text-muted);
+  font-size: 0.88rem;
+}
+
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-border);
+  overflow: hidden;
+}
+
+.overview-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.2rem 1.25rem 1.1rem;
+  background: var(--admin-bg-raised);
+  color: inherit;
+  text-decoration: none;
+}
+
+.overview-stat:hover {
+  background: var(--admin-bg-elevated);
+}
+
+.overview-stat-value {
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.overview-stat-label {
+  font-family: var(--admin-font-label);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.overview-stat-note {
+  color: var(--admin-text-secondary);
+  font-size: 0.78rem;
+}
+
+.overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+/* Same rule for the metadata master card: its switch says it is on. */
+.admin-layout .metadata-card.active {
+  border-color: var(--admin-border-hover);
+  box-shadow: none;
+}
+
+/* A chosen option (preset, frame, layout…) is a place, so it keeps the accent,
+   but as a hairline rather than a doubled frame. */
+.admin-layout .preset-card.active,
+.admin-layout .preset-btn.active {
+  box-shadow: none;
+}
+
+/* Page builder section icons: neutral, like the settings headers. */
+.admin-layout .builder-section-header h2 svg {
+  color: var(--admin-text-muted);
+}
+
+/* "Disabled" is a state, not an error. The badge sets its red inline, hence
+   !important; stage 2 moves the colour into the stylesheet (after #711). */
+.admin-layout .subpage-badge-protected[title='Page is disabled'] {
+  background: rgba(0, 0, 0, 0.72) !important;
+  color: var(--admin-text-secondary) !important;
+  border: 1px solid var(--admin-border-hover);
+}
+
+/* Every screen starts at the same left edge (stage 2 adds the shared page header). */
+.admin-layout .diag-page {
+  margin-left: 0;
+}
+
+/* ── Page header (stage 2) ─────────────────────────────────── */
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+  flex-wrap: wrap;
+  margin: 0 0 2rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.page-header-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.55rem;
+  font-family: var(--admin-font-label);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.page-header-kicker::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  background: var(--admin-accent);
+}
+
+.page-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  font-size: clamp(1.5rem, 2.4vw, 1.9rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.page-header-sub {
+  margin: 0.35rem 0 0;
+  max-width: 62ch;
+  color: var(--admin-text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* The journal list is an ordinary screen and gets the workspace column; only
+   the editor (split view) needs the full width journal-studio.css gives it. */
+.admin-app .admin-main:has(> .journal-studio) {
+  max-width: 1180px;
+  padding: 2.25rem 2.5rem 6rem;
+}
+
+@media (max-width: 860px) {
+  .admin-app .admin-main:has(> .journal-studio) {
+    padding: 1.5rem 1rem 6rem;
+  }
+}
+
+/* ── Confirm dialog (stage 3) ──────────────────────────────── */
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: var(--admin-overlay);
+}
+
+.confirm-card {
+  width: min(420px, 100%);
+  padding: 1.4rem 1.5rem 1.2rem;
+  border: 1px solid var(--admin-border-hover);
+  border-radius: var(--admin-radius);
+  background: var(--admin-bg-raised);
+  color: var(--admin-text);
+  font-family: var(--admin-font);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.confirm-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.confirm-message {
+  margin: 0.5rem 0 0;
+  color: var(--admin-text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.4rem;
+}
+
+.admin-btn.confirm-danger {
+  background: var(--admin-error);
+  border-color: var(--admin-error);
+  color: #fff;
+}
+
+/* A caption over a group of buttons or a self-labelled switch: looks like a
+   field label, but is not a <label>, since there is no single control for it
+   to name (#694 §4). */
+.admin-layout .admin-field-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-family: var(--admin-font-label);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--admin-text-secondary);
+}
+
+/* ── Page builder: structure list + panel (stage 4) ────────── */
+
+/* The builder uses the full workspace width: the list and the panel both
+   need room, and the panel carries the live preview. */
+.admin-app .admin-main:has(.pb-split) {
+  max-width: none;
+}
+
+.pb-split {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 1.75rem;
+  align-items: start;
+}
+
+.pb-tree {
+  position: sticky;
+  top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.pb-tree .builder-search-container {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+.pb-tree .builder-search-wrapper {
+  max-width: none;
+}
+
+.pb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pb-group-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 0.5rem 0.4rem;
+  font-family: var(--admin-font-label);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.pb-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--admin-radius);
+}
+
+.pb-row-grip {
+  display: inline-flex;
+  padding: 0 0.1rem 0 0.25rem;
+  color: var(--admin-text-muted);
+  opacity: 0.45;
+  cursor: grab;
+}
+
+.pb-row:hover .pb-row-grip {
+  opacity: 1;
+}
+
+.pb-row-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: var(--admin-radius);
+  background: none;
+  color: var(--admin-text-secondary);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pb-row-solo {
+  width: 100%;
+}
+
+.pb-row-main:hover {
+  background: var(--admin-bg-raised);
+  color: var(--admin-text);
+}
+
+.pb-row.active .pb-row-main,
+.pb-row-main.active {
+  background: var(--admin-bg-elevated);
+  color: var(--admin-text);
+  box-shadow: inset 2px 0 0 var(--admin-accent);
+}
+
+.pb-row.is-off .pb-row-name {
+  color: var(--admin-text-muted);
+}
+
+.pb-row-thumb {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 26px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--admin-bg-elevated);
+  color: var(--admin-text-muted);
+}
+
+.pb-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pb-row-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pb-row-count,
+.pb-row-state {
+  font-family: var(--admin-font-label);
+  font-size: 0.68rem;
+  color: var(--admin-text-muted);
+}
+
+.pb-row-state {
+  padding: 0 0.35rem;
+  border: 1px solid var(--admin-border-hover);
+  border-radius: 2px;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pb-add {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px dashed var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: none;
+  color: var(--admin-text-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.pb-add:hover {
+  border-color: var(--admin-border-hover);
+  color: var(--admin-text);
+}
+
+.pb-panel {
+  min-width: 0;
+}
+
+.pb-panel .builder-section:first-child {
+  margin-top: 0;
+}
+
+/* The subpage sheet, in place: no overlay chrome, full panel height. */
+.subpage-drawer-container--inline {
+  max-width: none;
+  max-height: none;
+  border-radius: var(--admin-radius);
+  box-shadow: none;
+  animation: none;
+}
+
+/* Out of the overlay, the page itself scrolls. The body keeps no scroller of
+   its own: with `overflow-y: auto` it still became one (a sideways overflow
+   is enough), and `overscroll-behavior: contain` then swallowed every wheel
+   turn over the panel instead of handing it to the page. */
+.subpage-drawer-container--inline .subpage-drawer-body {
+  overflow: visible;
+  overscroll-behavior: auto;
+}
+
+@media (max-width: 1100px) {
+  .pb-split {
+    grid-template-columns: 1fr;
+  }
+
+  .pb-tree {
+    position: static;
+    max-height: none;
+  }
+}
+
+/* A custom album title is marked by weight, not by the accent: red italics
+   on every renamed album read as an error. */
+.admin-layout .album-tile-name.custom-title {
+  color: var(--admin-text);
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* ── Collapsible sidebar ───────────────────────────────────── */
+
+.admin-sidebar {
+  position: sticky;
+  transition: width 0.18s ease;
+}
+
+.admin-app {
+  transition: grid-template-columns 0.18s ease;
+}
+
+.admin-sidebar-toggle {
+  position: absolute;
+  top: 1.35rem;
+  right: 0.6rem;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-bg-raised);
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  z-index: 2;
+}
+
+.admin-sidebar-toggle:hover {
+  color: var(--admin-text);
+  border-color: var(--admin-border-hover);
+}
+
+.admin-app.is-collapsed {
+  --admin-sidebar-width: 64px;
+}
+
+.admin-app.is-collapsed .admin-sidebar {
+  padding-left: 0.6rem;
+  padding-right: 0.6rem;
+  align-items: center;
+  /* The name overlays sit outside the 64px column. */
+  overflow: visible;
+}
+
+.admin-app.is-collapsed .admin-sidebar-toggle {
+  position: static;
+  order: -1;
+}
+
+.admin-app.is-collapsed .admin-brand {
+  justify-content: center;
+  padding: 0.25rem 0 0.5rem;
+}
+
+.admin-app.is-collapsed .admin-brand-text,
+.admin-app.is-collapsed .admin-nav-text,
+.admin-app.is-collapsed .admin-side-label,
+.admin-app.is-collapsed .status-text {
+  display: none;
+}
+
+/* Group labels become a hairline between groups. */
+.admin-app.is-collapsed .admin-nav-label {
+  display: block;
+  height: 1px;
+  margin: 0 0.35rem 0.35rem;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+  background: var(--admin-border);
+}
+
+.admin-app.is-collapsed .admin-nav,
+.admin-app.is-collapsed .admin-sidebar-foot,
+.admin-app.is-collapsed .admin-sidebar-actions {
+  width: 100%;
+  align-items: center;
+}
+
+.admin-app.is-collapsed .admin-nav-item,
+.admin-app.is-collapsed .admin-side-action {
+  justify-content: center;
+  width: 40px;
+  height: 36px;
+  padding: 0;
+}
+
+.admin-app.is-collapsed .admin-nav-item.active::before {
+  left: -0.6rem;
+}
+
+/* The unread count shrinks to a dot on the icon. */
+.admin-app.is-collapsed .admin-nav-count {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 0;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  font-size: 0;
+}
+
+.admin-app.is-collapsed .admin-nav-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+}
+
+.admin-app.is-collapsed .sidebar-status {
+  justify-content: center;
+  width: 40px;
+  padding: 0;
+}
+
+.admin-app.is-collapsed .status-indicator-container {
+  display: flex;
+  justify-content: center;
+}
+
+/* Name overlays: on hover and on keyboard focus, beside the icon. */
+.admin-app.is-collapsed [data-tip] {
+  position: relative;
+}
+
+.admin-app.is-collapsed [data-tip]:hover::after,
+.admin-app.is-collapsed [data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--admin-border-hover);
+  border-radius: var(--admin-radius);
+  background: var(--admin-bg-elevated);
+  color: var(--admin-text);
+  font-family: var(--admin-font);
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 200;
+}
+
+@media (max-width: 860px) {
+  .admin-sidebar-toggle {
+    display: none;
+  }
+}
+
+/* ── Status pill switches ──────────────────────────────────── */
+
+/* Every switch reads as a pill that says what it is: a dot plus ON or OFF.
+   "On" is the success green, never the accent — a preset may make the accent
+   red, and a switched-on setting must not look like an error. The markup is
+   unchanged (`.switch-toggle` > `.switch-slider`); the slider becomes the dot
+   and the word comes from CSS, hidden from assistive technology because the
+   button already carries `aria-pressed`. */
+.admin-layout .switch-toggle,
+.admin-layout .switch-toggle--sm {
+  width: auto;
+  min-width: 62px;
+  height: 24px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--admin-border-hover);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--admin-text-muted);
+  font-family: var(--admin-font-label);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.admin-layout .switch-toggle--sm {
+  min-width: 56px;
+  height: 22px;
+  padding: 0 8px;
+}
+
+.admin-layout .switch-toggle::after {
+  content: 'Off' / '';
+}
+
+.admin-layout .switch-toggle .switch-slider,
+.admin-layout .switch-toggle--sm .switch-slider {
+  position: static;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--admin-border-hover);
+  box-shadow: none;
+  transform: none;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.admin-layout .switch-toggle.on {
+  color: var(--admin-success);
+  border-color: var(--admin-success);
+  background: color-mix(in srgb, var(--admin-success) 12%, transparent);
+}
+
+.admin-layout .switch-toggle.on::after {
+  content: 'On' / '';
+}
+
+.admin-layout .switch-toggle.on .switch-slider {
+  background: var(--admin-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--admin-success) 22%, transparent);
+  transform: none;
+}
+
+/* Inert: dashed, no dot colour — not an off switch someone could turn on. */
+.admin-layout .setting-row--disabled .switch-toggle {
+  border-style: dashed;
+  background: transparent;
+  opacity: 0.6;
+}
+
+.admin-layout .setting-row--disabled .switch-slider {
+  background: var(--admin-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-layout .switch-toggle,
+  .admin-layout .switch-slider {
+    transition: none;
+  }
+}
+
+/* ── Feature lists ─────────────────────────────────────────── */
+
+/* Dense rows grouped by meaning replace the grid of equal cards: the group
+   heading carries the weight, each switch is one line. */
+.admin-layout .feature-list {
+  border-top: 1px solid var(--admin-border);
+}
+
+.admin-layout .feature-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.admin-layout .feature-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 4px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-layout .feature-row-main:focus-visible {
+  outline: var(--admin-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--admin-radius);
+}
+
+.admin-layout .feature-row-icon {
+  display: inline-flex;
+  color: var(--admin-text-muted);
+  flex-shrink: 0;
+}
+
+.admin-layout .feature-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-layout .feature-row-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--admin-text);
+}
+
+.admin-layout .feature-row-desc {
+  font-size: 0.78rem;
+  color: var(--admin-text-muted);
+}
+
+.admin-layout .feature-row-main:hover .feature-row-title {
+  color: var(--admin-text);
+  text-decoration: underline;
+  text-decoration-color: var(--admin-border-hover);
+  text-underline-offset: 3px;
+}
+
+.admin-layout .feature-row-link {
+  flex-shrink: 0;
+  width: 84px;
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--admin-text-secondary);
+  text-decoration: none;
+  padding: 4px 2px;
+}
+
+.admin-layout .feature-row-link:hover {
+  color: var(--admin-text);
+}
+
+.admin-layout .settings-group .feature-list + .metadata-card,
+.admin-layout .settings-group .metadata-card + .feature-list {
+  margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+  .admin-layout .feature-row {
+    flex-wrap: wrap;
+    gap: 0 12px;
+  }
+
+  .admin-layout .feature-row-link {
+    width: auto;
+    padding: 0 0 10px 31px;
+  }
+
+  .admin-layout .feature-row-link:empty {
+    display: none;
+  }
+}

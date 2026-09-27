@@ -6,7 +6,7 @@
 title: "My Portfolio"
 subtitle: "A visual journal"
 
-# Interface language of the visitor-facing site: "en" or "de".
+# Interface language of the visitor-facing site: "en", "de", "fr", "es", "it" or "nl".
 # Any other value still sets <html lang> and date formatting, but the
 # interface stays English. The admin panel is always English.
 lang: "en"
@@ -111,16 +111,39 @@ footer:
   email: "hello@example.com"
   website: "https://example.com"
 
+# ── Privacy policy ───────────────────────────────────────────────
+# The text lives in content/privacy.md, written in the admin panel under
+# Settings → Legal. /privacy is shown, and linked in the footer, while this is
+# on (the default) and the file has text.
+# privacy:
+#   enabled: false
+
+# ── Contact form ─────────────────────────────────────────────────
+# A form at /contact. Messages are stored in content/messages/ and read in
+# the admin panel under Messages; no mail is sent. With the Impressum on and
+# no legal.contactUrl, the Impressum links this form as its second channel.
+contact:
+  enabled: false
+  # A fixed "new message" push, with nothing about the sender.
+  # Pick a topic nobody can guess. CONTACT_NOTIFY_URL overrides this.
+  # notifyUrl: "https://ntfy.sh/your-secret-topic"
+  retentionDays: 90 # messages are deleted after this many days
+
 # ── Legal / Impressum (German Law compliance) ────────────────────
 # If enabled: true, a link to /impressum will appear in the footer.
 legal:
   enabled: false
+  # heading: "Angaben gemäß § 5 ECG"  # replaces the default "§ 5 DDG" line
   name: "Your Full Name"
   address: "Street and House Number"
   zipCity: "ZIP Code and City"
   country: "Germany"
   email: "legal@example.com"
   phone: "+49 123 456789"
-  # taxId: "DE123456789"
-  # vatId: "12/345/67890"
+  # A contact form counts as the second contact channel next to email, so
+  # phone can be left out. Only http(s) URLs are accepted.
+  # contactUrl: "https://example.com/contact"
+  # contactLabel: "Contact form"
+  # vatId: "DE123456789"
+  # taxId: "12/345/67890"
   extraInfo: "Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV: Max Mustermann"

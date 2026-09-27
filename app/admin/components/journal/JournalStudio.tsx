@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { JournalEntrySummary } from '@/lib/journal';
 import { serializeJournalMarkdown, sanitizeSlug } from '@/lib/journal';
@@ -16,6 +16,12 @@ import {
 } from '../Icons';
 import './journal-studio.css';
 import { JournalEditor } from './JournalEditor';
+import { useNotify } from '../Notifications';
+import { useAdminFetch } from '../useAdminFetch';
+import { useContentRestored } from '../contentRestored';
+import AdminLoadState from '../AdminLoadState';
+import PageHeader from '../PageHeader';
+import { useConfirm } from '../ConfirmDialog';
 
 interface JournalStudioProps {
   /** Entry to open, taken from the /admin/journal/[slug] route. */
@@ -25,10 +31,17 @@ interface JournalStudioProps {
 }
 
 export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioProps) {
+  const confirm = useConfirm();
+  const notify = useNotify();
   const router = useRouter();
-  const [entries, setEntries] = useState<JournalEntrySummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const list = useAdminFetch<{ entries?: JournalEntrySummary[] }>('/api/admin/journal');
+  const entries = list.data?.entries ?? [];
+  const fetchEntries = list.reload;
+
+  // A restored entry may be one that was deleted, or have a new title.
+  useContentRestored(({ target }) => {
+    if (target === 'journal') fetchEntries();
+  });
 
   // New Entry Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -37,28 +50,6 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
   const [creating, setCreating] = useState(false);
   /** null = start blank, matching the previous (only) behavior. */
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-
-  const fetchEntries = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/admin/journal');
-      if (res.ok) {
-        const data = await res.json();
-        setEntries(data.entries || []);
-      } else {
-        setError('Failed to load journal entries');
-      }
-    } catch {
-      setError('Failed to load journal entries');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchEntries();
-  }, [fetchEntries]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,41 +89,42 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
         setNewTitle('');
         setNewSlug('');
         setSelectedTemplateId(null);
-        await fetchEntries();
+        fetchEntries();
         if (data.entry?.slug) {
           router.push(`/admin/journal/${data.entry.slug}`);
         }
       } else {
         const data = await res.json();
-        alert(data.error || 'Failed to create journal entry');
+        notify('error', data.error || 'Failed to create journal entry');
       }
     } catch {
-      alert('Error creating journal entry');
+      notify('error', 'Could not create the journal entry. Check the connection and try again.');
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (slug: string) => {
-    if (
-      !confirm(
-        `Delete "${slug}"?\n\nA copy is kept and can be restored from Backups on the dashboard.`,
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: `Delete “${slug}”?`,
+      message: 'A copy is kept and can be restored under Backups.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
       const res = await fetch(`/api/admin/journal/${slug}`, {
         method: 'DELETE',
       });
       if (res.ok) {
-        await fetchEntries();
+        fetchEntries();
         if (activeSlug === slug) router.push('/admin/journal');
       } else {
-        alert('Failed to delete journal entry');
+        notify('error', 'Failed to delete journal entry');
       }
     } catch {
-      alert('Error deleting journal entry');
+      notify('error', 'Could not delete the journal entry. Check the connection and try again.');
     }
   };
 
@@ -148,30 +140,28 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
 
   return (
     <div className="journal-studio">
-      <div className="journal-studio-header">
-        <div>
-          <h2>
-            <IconBook size={20} /> Journal &amp; Photo Essays
-          </h2>
-          <p style={{ margin: '4px 0 0', opacity: 0.7, fontSize: '0.9rem' }}>
-            Author visual stories, field notes, and longform photo essays with live preview.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="admin-btn admin-btn-primary"
-          onClick={() => setShowCreateModal(true)}
-        >
-          <IconPlus size={16} /> New Journal Entry
-        </button>
-      </div>
+      <PageHeader
+        kicker="Content"
+        title="Journal"
+        description="Stories, field notes and longform photo essays, written with a live preview."
+        actions={
+          <button
+            type="button"
+            className="admin-btn admin-btn-primary"
+            onClick={() => setShowCreateModal(true)}
+          >
+            <IconPlus size={16} /> New Journal Entry
+          </button>
+        }
+      />
 
-      {loading ? (
-        <div style={{ padding: '3rem', textAlign: 'center', opacity: 0.6 }}>
-          Loading journal entries...
-        </div>
-      ) : error ? (
-        <div style={{ padding: '3rem', textAlign: 'center', color: '#ef4444' }}>{error}</div>
+      {(list.loading && !list.data) || list.error ? (
+        <AdminLoadState
+          loading={list.loading}
+          error={list.error}
+          onRetry={list.reload}
+          hasData={!!list.data}
+        />
       ) : entries.length === 0 ? (
         <div style={{ padding: '5rem 2rem', textAlign: 'center', opacity: 0.6 }}>
           <h3>No journal entries yet</h3>
@@ -269,6 +259,7 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
             <form onSubmit={handleCreate}>
               <div style={{ marginBottom: '1rem' }}>
                 <label
+                  htmlFor="journal-new-title"
                   style={{
                     display: 'block',
                     fontSize: '0.85rem',
@@ -279,6 +270,7 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
                   Title
                 </label>
                 <input
+                  id="journal-new-title"
                   type="text"
                   className="admin-input"
                   placeholder="e.g. Expedition Nordkap"
@@ -296,6 +288,7 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
 
               <div style={{ marginBottom: '1.5rem' }}>
                 <label
+                  htmlFor="journal-new-url-slug"
                   style={{
                     display: 'block',
                     fontSize: '0.85rem',
@@ -306,6 +299,7 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
                   URL Slug
                 </label>
                 <input
+                  id="journal-new-url-slug"
                   type="text"
                   className="admin-input"
                   placeholder="e.g. expedition-nordkap"

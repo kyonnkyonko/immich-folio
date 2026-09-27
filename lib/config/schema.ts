@@ -70,22 +70,58 @@ export interface FooterConfig {
   website?: string;
 }
 
+/**
+ * Whether a URL may go into an `href` taken from settings: http(s) only, so a
+ * `javascript:` or `data:` URL in hand-edited YAML never reaches a link.
+ */
+export function isHttpUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url.trim());
+}
+
 export interface LegalConfig {
   enabled: boolean;
+  /** Replaces the statute line under the title ("Angaben gemäß § 5 DDG"). */
+  heading?: string;
   name: string;
   address: string;
   zipCity: string;
   country: string;
   email?: string;
   phone?: string;
+  /** Second contact channel next to email, e.g. a contact form. http(s) only. */
+  contactUrl?: string;
+  contactLabel?: string;
   taxId?: string;
   vatId?: string;
   extraInfo?: string;
 }
 
+/** The built-in contact form (`/contact`, #702). */
+export interface ContactConfig {
+  enabled: boolean;
+  /**
+   * Where a "new message" notification is POSTed, e.g. an ntfy topic URL.
+   * `CONTACT_NOTIFY_URL` overrides the settings.yaml value. http(s) only.
+   */
+  notifyUrl?: string;
+  /** Messages older than this are deleted. */
+  retentionDays: number;
+}
+
+export const CONTACT_RETENTION_DEFAULT = 90;
+export const CONTACT_RETENTION_MAX = 365;
+
 export interface ThemeConfig {
   preset: string;
   accent: string;
+  /**
+   * The accent for one colour mode, where a preset's single `accent` fails
+   * contrast against that mode's background (Minimal's black on its black dark
+   * mode, say). Only presets set these, and resolveTheme keeps them only while
+   * the owner uses the preset's own accent. See accentForMode().
+   */
+  accentDark?: string;
+  accentLight?: string;
   fonts: { heading: string; body: string; caption: string };
   radius: number;
   photoFrame: 'none' | 'passepartout' | 'shadow';
@@ -217,6 +253,9 @@ export interface AppConfig {
   theme: ThemeConfig;
   footer: FooterConfig | null;
   legal: LegalConfig;
+  contact: ContactConfig;
+  /** /privacy, shown while this is on and content/privacy.md has text (#699). */
+  privacy: { enabled: boolean };
   map: boolean;
   transitions: boolean;
   /** Floating back-to-top arrow in the frontend. */
@@ -399,6 +438,8 @@ export interface SettingsYaml {
   };
   footer?: FooterConfig;
   legal?: Partial<LegalConfig>;
+  contact?: { enabled?: boolean; notifyUrl?: string; retentionDays?: number };
+  privacy?: { enabled?: boolean };
   /** EXPERIMENTAL: external links appended to the header navigation. */
   navLinks?: Array<{ label?: string; url?: string }>;
   protection?: {

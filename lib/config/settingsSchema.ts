@@ -96,17 +96,24 @@ export const settingsSchema = z.looseObject({
   legal: z
     .looseObject({
       enabled: bool,
+      heading: str,
       name: str,
       address: str,
       zipCity: str,
       country: str,
       email: str,
       phone: str,
+      contactUrl: str,
+      contactLabel: str,
       taxId: str,
       vatId: str,
       extraInfo: str,
     })
     .optional(),
+
+  contact: z.looseObject({ enabled: bool, notifyUrl: str, retentionDays: num }).optional(),
+
+  privacy: z.looseObject({ enabled: bool }).optional(),
 
   navLinks: z.array(z.looseObject({ label: str, url: str })).optional(),
 

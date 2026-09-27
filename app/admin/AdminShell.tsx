@@ -4,7 +4,9 @@ import { useState, useEffect, type ReactNode } from 'react';
 import AdminLogin from './components/AdminLogin';
 import AdminDashboard from './components/AdminDashboard';
 import { SESSION_EXPIRED_EVENT } from './components/sessionExpiry';
+import { NotificationProvider } from './components/Notifications';
 import './admin.css';
+import { ConfirmProvider } from './components/ConfirmDialog';
 
 /**
  * Auth gate and panel chrome for every /admin route. Lives in the admin layout
@@ -79,5 +81,11 @@ export default function AdminShell({ children }: { children: ReactNode }) {
     );
   }
 
-  return <AdminDashboard onLogout={() => setAuthenticated(false)}>{children}</AdminDashboard>;
+  return (
+    <NotificationProvider>
+      <ConfirmProvider>
+        <AdminDashboard onLogout={() => setAuthenticated(false)}>{children}</AdminDashboard>
+      </ConfirmProvider>
+    </NotificationProvider>
+  );
 }

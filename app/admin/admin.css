@@ -32,3 +32,6 @@
 @import './styles/asset-order.css';
 @import './styles/favicon.css';
 @import './styles/diagnostics.css';
+@import './styles/messages.css';
+@import './styles/notifications.css';
+@import './styles/redesign.css';

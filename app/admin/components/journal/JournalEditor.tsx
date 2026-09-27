@@ -30,12 +30,14 @@ import { useUnsavedGuard } from '../useUnsavedGuard';
 import { useDraft } from '../useDraft';
 import DraftNotice from '../DraftNotice';
 import { reportIfSessionExpired } from '../sessionExpiry';
+import { useContentRestored } from '../contentRestored';
 import './journal-studio.css';
 import { BlockFields, type AssetPickTarget } from './BlockFields';
 import { StorySettingsModal } from './StorySettingsModal';
 import { JournalPreview } from './JournalPreview';
 import { createBlock, moveBlock } from './blockOps';
 import { useSplitPane, SPLIT_MIN, SPLIT_MAX } from './splitPane';
+import { useNotify } from '../Notifications';
 
 interface JournalEditorProps {
   slug: string;
@@ -44,6 +46,7 @@ interface JournalEditorProps {
 }
 
 export function JournalEditor({ slug, mapEnabled, onBack }: JournalEditorProps) {
+  const notify = useNotify();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -82,6 +85,12 @@ export function JournalEditor({ slug, mapEnabled, onBack }: JournalEditorProps) 
   const loadDraft = draft.load;
   const serverMarkdown = useRef('');
 
+  // Bumped when this entry is restored from a backup, to load it again.
+  const [reloadKey, setReloadKey] = useState(0);
+  useContentRestored(({ target, slug: restored }) => {
+    if (target === 'journal' && restored === slug) setReloadKey((k) => k + 1);
+  });
+
   // Load entry
   useEffect(() => {
     async function load() {
@@ -113,7 +122,7 @@ export function JournalEditor({ slug, mapEnabled, onBack }: JournalEditorProps) 
       }
     }
     load();
-  }, [slug, loadDraft]);
+  }, [slug, loadDraft, reloadKey]);
 
   // Update markdown and sync blocks
   const handleMarkdownChange = (newMd: string) => {
@@ -154,6 +163,9 @@ export function JournalEditor({ slug, mapEnabled, onBack }: JournalEditorProps) 
   const handleSave = async () => {
     // The editor is not rendered in this state, but Cmd+S still reaches here.
     if (loadError) return;
+    // Nothing to save: every save rotates a backup, so repeated Cmd+S on an
+    // unchanged entry pushed real history out of the ten kept per file.
+    if (!dirty || saving) return;
 
     setSaving(true);
     try {
@@ -166,15 +178,25 @@ export function JournalEditor({ slug, mapEnabled, onBack }: JournalEditorProps) 
       });
 
       if (res.ok) {
-        serverMarkdown.current = rawMarkdown;
-        draft.saved(rawMarkdown);
+        // The file as written, not as sent: a password line is hashed on the
+        // way to disk (#690). Taking the sent text as the base would make the
+        // next draft look like a conflicting edit from elsewhere.
+        const data = await res.json().catch(() => null);
+        const written: string =
+          typeof data?.entry?.rawMarkdown === 'string' ? data.entry.rawMarkdown : rawMarkdown;
+        serverMarkdown.current = written;
+        draft.saved(written);
+        if (written !== rawMarkdown) {
+          setRawMarkdown(written);
+          setParsed(parseJournalMarkdown(written));
+        }
         setDirty(false);
       } else if (!reportIfSessionExpired(res)) {
         const data = await res.json();
-        alert(data.error || 'Failed to save');
+        notify('error', data.error || 'Failed to save');
       }
     } catch {
-      alert('Error saving entry');
+      notify('error', 'Could not save the entry. Check the connection and try again.');
     } finally {
       setSaving(false);
     }
@@ -324,6 +346,7 @@ export function JournalEditor({ slug, mapEnabled, onBack }: JournalEditorProps) 
             className="journal-editor-title-input"
             value={parsed.frontmatter.title || ''}
             placeholder="Story Title..."
+            aria-label="Story title"
             onChange={(e) => handleFrontmatterChange({ title: e.target.value })}
           />
 
@@ -375,7 +398,7 @@ export function JournalEditor({ slug, mapEnabled, onBack }: JournalEditorProps) 
             type="button"
             className="admin-btn admin-btn-sm admin-btn-primary"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !dirty}
           >
             {saving ? (
               'Saving...'
