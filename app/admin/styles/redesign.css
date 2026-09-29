@@ -183,7 +183,7 @@
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
   background: var(--admin-accent);
-  color: #fff;
+  color: var(--admin-on-accent);
   font-family: var(--admin-font-label);
   font-size: 0.68rem;
   text-align: center;
@@ -214,15 +214,32 @@
   justify-content: flex-start;
 }
 
-/* In the sidebar foot the dropdown opens upwards and to the right. */
+/* In the sidebar foot the dropdown opens upwards, as wide as the foot. The
+   sidebar scrolls (overflow-y: auto), which clips sideways too: a fixed 280px
+   panel lost its values past the 232px column. */
 .admin-sidebar .status-dropdown {
   top: auto;
   bottom: 100%;
   left: 0;
-  right: auto;
+  right: 0;
   margin: 0 0 0.5rem;
-  width: 280px;
+  width: auto;
   border-radius: var(--admin-radius);
+}
+
+.admin-sidebar .status-item {
+  gap: 0.75rem;
+}
+
+.admin-sidebar .status-val {
+  text-align: right;
+}
+
+/* The collapsed sidebar does not clip (overflow: visible below), so the panel
+   keeps its width and opens out of the 64px column. */
+.admin-app.is-collapsed .admin-sidebar .status-dropdown {
+  right: auto;
+  width: 280px;
 }
 
 .admin-sidebar-actions {
@@ -656,6 +673,7 @@
 
 .confirm-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 1.4rem;
@@ -836,6 +854,82 @@
   text-transform: uppercase;
 }
 
+/* Content pages in the structure list (#722): a document icon and a PAGE tag
+   tell them apart from subpages at a glance. */
+.pb-row-tag {
+  padding: 0 0.35rem;
+  border-radius: 2px;
+  background: var(--admin-bg-elevated);
+  font-family: var(--admin-font-label);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--admin-text-secondary);
+}
+
+.pb-offmenu {
+  min-height: 2.25rem;
+  border-radius: var(--admin-radius);
+}
+
+.pb-offmenu.is-over {
+  outline: 1px dashed var(--admin-border-hover);
+}
+
+.pb-offmenu .empty-hint {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.page-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 720px;
+}
+
+.page-panel .builder-section-header {
+  margin-bottom: 0;
+}
+
+.page-panel textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.page-panel-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.page-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.new-page-card {
+  width: min(440px, 100%);
+}
+
+.new-page-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pb-add-row {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.pb-add-row .pb-add {
+  flex: 1;
+}
+
 .pb-add {
   display: flex;
   align-items: center;
@@ -868,6 +962,11 @@
 .subpage-drawer-container--inline {
   max-width: none;
   max-height: none;
+  /* The overlay sheet is 100dvh tall on a phone (subpage-sheet.css). In place,
+     that height clipped everything past the first screen — album list, grid
+     settings, Delete — and the footer slid over the password field. The
+     sheet grows with its content and the page scrolls. */
+  height: auto;
   border-radius: var(--admin-radius);
   box-shadow: none;
   animation: none;
@@ -890,6 +989,11 @@
   .pb-tree {
     position: static;
     max-height: none;
+  }
+
+  /* Picking a row scrolls the stacked panel up (PageBuilder revealPanel). */
+  .pb-panel {
+    scroll-margin-top: 1rem;
   }
 }
 
@@ -1323,4 +1427,35 @@
   .admin-nav .admin-nav-item {
     min-height: 44px;
   }
+}
+
+/* ── Env-locked fields (#605) ──────────────────────────────── */
+
+/* A field an environment variable overrides: the input is disabled and this
+   note names the variable. Neutral pill, not the warning or accent colour —
+   the lock is a fact about the deployment, not a problem. */
+.admin-env-lock {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--admin-text-muted);
+}
+
+.admin-env-lock-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--admin-border-hover);
+  border-radius: 999px;
+  font-family: var(--admin-font-label);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  flex-shrink: 0;
 }

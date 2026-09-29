@@ -13,6 +13,8 @@ import {
   checkContact,
   checkLegal,
   checkPrivacy,
+  checkContentPages,
+  checkSettingValues,
   worstLevel,
 } from '../admin/doctor';
 
@@ -442,5 +444,60 @@ describe('checkPrivacy', () => {
     expect(checkPrivacy({ legalEnabled: true, privacyEnabled: true, hasText: true })?.level).toBe(
       'ok',
     );
+  });
+});
+
+describe('checkContentPages (#722)', () => {
+  it('stays silent without pages or references', () => {
+    expect(checkContentPages({ menuRefs: [], pages: [], collisions: [] })).toBeNull();
+  });
+
+  it('is ok when every reference has a file and no slug is taken', () => {
+    const f = checkContentPages({
+      menuRefs: ['pricing'],
+      pages: ['pricing', 'faq'],
+      collisions: [],
+    });
+    expect(f?.level).toBe('ok');
+    expect(f?.id).toBe('content-pages');
+  });
+
+  it('warns about a menu reference without a file, naming it', () => {
+    const f = checkContentPages({
+      menuRefs: ['pricing', 'gone'],
+      pages: ['pricing'],
+      collisions: [],
+    });
+    expect(f?.level).toBe('warn');
+    expect(f?.detail).toContain('"gone"');
+  });
+
+  it('reports a slug collision as an error', () => {
+    const f = checkContentPages({
+      menuRefs: [],
+      pages: ['travel'],
+      collisions: [{ slug: 'travel', reason: '/travel is already a subpage.' }],
+    });
+    expect(f?.level).toBe('error');
+    expect(f?.detail).toContain('/travel is already a subpage.');
+  });
+});
+
+describe('checkSettingValues (QA A-14)', () => {
+  it('is ok when every checked value is used as written', () => {
+    expect(checkSettingValues([]).level).toBe('ok');
+  });
+
+  it('warns and names the fields the site replaces', () => {
+    const f = checkSettingValues([{ field: 'theme.accent' }, { field: 'grid.columns' }]);
+    expect(f.level).toBe('warn');
+    expect(f.title).toBe('2 settings are ignored');
+    expect(f.detail).toContain('accent colour, grid columns');
+  });
+
+  it('points at the settings section of the first field', () => {
+    expect(checkSettingValues([{ field: 'url' }]).settingsSection).toBe('seo');
+    expect(checkSettingValues([{ field: 'grid.gap' }]).settingsSection).toBe('grid');
+    expect(checkSettingValues([{ field: 'theme.accent' }]).settingsSection).toBe('theme');
   });
 });

@@ -13,12 +13,17 @@ import {
   IconFolder,
   IconX,
 } from '../Icons';
-import { isLegacyAssetRef } from './blockOps';
+import { InlineMarkdownField } from '../InlineMarkdownField';
+import { fillAssetSlots, isLegacyAssetRef } from './blockOps';
 
 /** What the asset picker is opened for: its title, and where the pick goes. */
 export interface AssetPickTarget {
   title: string;
-  onSelect: (assetId: string) => void;
+  onSelect?: (assetId: string) => void;
+  /** Multi-select: several picks confirmed at once (#602). */
+  onSelectMany?: (assetIds: string[]) => void;
+  /** Most assets `onSelectMany` takes. */
+  max?: number;
 }
 
 interface BlockFieldsProps {
@@ -71,22 +76,26 @@ export function BlockFields({
       )}
 
       {block.type === 'paragraph' && (
-        <textarea
+        <InlineMarkdownField
+          multiline
+          aria-label="Text"
           className="admin-input"
           rows={3}
-          value={block.html}
-          onChange={(e) => onChange({ ...block, html: e.target.value })}
+          placeholder="Text (**bold**, *italic*, [link](https://…))"
+          html={block.html}
+          onChange={(html) => onChange({ ...block, html })}
         />
       )}
 
       {block.type === 'quote' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <textarea
+          <InlineMarkdownField
+            multiline
             className="admin-input"
             rows={2}
-            value={block.text}
+            html={block.text}
             placeholder="Quote text..."
-            onChange={(e) => onChange({ ...block, text: e.target.value })}
+            onChange={(text) => onChange({ ...block, text })}
           />
           <input
             type="text"
@@ -176,12 +185,11 @@ export function BlockFields({
                 Change Photo
               </button>
             </div>
-            <input
-              type="text"
+            <InlineMarkdownField
               className="admin-input"
               placeholder="Caption (optional)"
-              value={block.caption || ''}
-              onChange={(e) => onChange({ ...block, caption: e.target.value })}
+              html={block.caption}
+              onChange={(caption) => onChange({ ...block, caption })}
             />
           </div>
         </div>
@@ -242,12 +250,31 @@ export function BlockFields({
               </div>
             ))}
           </div>
-          <input
-            type="text"
+          <div>
+            <button
+              type="button"
+              className="admin-btn admin-btn-xs"
+              onClick={() =>
+                onPickAsset({
+                  title: 'Select Photos for Pair',
+                  max: 2,
+                  onSelectMany: (ids) => {
+                    // Two picks replace the pair; a single pick fills a gap.
+                    const base = ids.length >= 2 ? ['', ''] : [...block.assetIds];
+                    const [a, b] = fillAssetSlots(base, ids, 2);
+                    onChange({ ...block, assetIds: [a ?? '', b ?? ''] });
+                  },
+                })
+              }
+            >
+              <IconCamera size={12} /> Pick both photos
+            </button>
+          </div>
+          <InlineMarkdownField
             className="admin-input"
             placeholder="Shared caption for pair (optional)"
-            value={block.caption || ''}
-            onChange={(e) => onChange({ ...block, caption: e.target.value })}
+            html={block.caption}
+            onChange={(caption) => onChange({ ...block, caption })}
           />
         </div>
       )}
@@ -316,16 +343,28 @@ export function BlockFields({
             >
               <IconPlus size={12} /> Add photo
             </button>
+            <button
+              type="button"
+              className="admin-btn admin-btn-xs"
+              onClick={() =>
+                onPickAsset({
+                  title: 'Select Photos for Grid',
+                  onSelectMany: (ids) =>
+                    onChange({ ...block, assetIds: fillAssetSlots(block.assetIds, ids) }),
+                })
+              }
+            >
+              <IconCamera size={12} /> Pick several
+            </button>
             <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>
               Three or more photos, laid out in rows of three.
             </span>
           </div>
-          <input
-            type="text"
+          <InlineMarkdownField
             className="admin-input"
             placeholder="Shared caption for grid (optional)"
-            value={block.caption || ''}
-            onChange={(e) => onChange({ ...block, caption: e.target.value })}
+            html={block.caption}
+            onChange={(caption) => onChange({ ...block, caption })}
           />
         </div>
       )}
@@ -348,17 +387,14 @@ export function BlockFields({
                   })
                 }
               />
-              <input
-                type="text"
+              <InlineMarkdownField
                 className="admin-input"
                 placeholder="Value, e.g. 21 km"
-                value={item.value}
-                onChange={(e) =>
+                html={item.value}
+                onChange={(value) =>
                   onChange({
                     ...block,
-                    items: block.items.map((it, i) =>
-                      i === fIdx ? { ...it, value: e.target.value } : it,
-                    ),
+                    items: block.items.map((it, i) => (i === fIdx ? { ...it, value } : it)),
                   })
                 }
               />
@@ -467,17 +503,11 @@ export function BlockFields({
               </select>
             </label>
           </div>
-          <input
-            type="text"
+          <InlineMarkdownField
             className="admin-input"
             placeholder="Caption for the set (optional)"
-            value={block.caption || ''}
-            onChange={(e) =>
-              onChange({
-                ...block,
-                caption: e.target.value || undefined,
-              })
-            }
+            html={block.caption}
+            onChange={(caption) => onChange({ ...block, caption: caption || undefined })}
           />
           <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>
             Photos follow the album&apos;s order (a manual order in the gallery comes first). Count
@@ -494,12 +524,11 @@ export function BlockFields({
               enabled.
             </p>
           )}
-          <input
-            type="text"
+          <InlineMarkdownField
             className="admin-input"
             placeholder="Caption, e.g. Busan → Seoul (optional)"
-            value={block.caption || ''}
-            onChange={(e) => onChange({ ...block, caption: e.target.value })}
+            html={block.caption}
+            onChange={(caption) => onChange({ ...block, caption })}
           />
 
           {block.items.map((item, mIdx) => {

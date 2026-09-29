@@ -3,7 +3,8 @@ import Image from 'next/image';
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { type JournalEntrySummary } from '@/lib/journal';
-import { listJournalEntries } from '@/lib/admin/journal-service';
+import { formatJournalDate } from '@/lib/journalDate';
+import { listJournalEntriesForRequest } from '@/lib/journal.server';
 import { isAdminAuthenticated } from '@/lib/admin/auth';
 import { isAuthenticated } from '@/lib/auth';
 import { immich } from '@/lib/immich';
@@ -29,7 +30,7 @@ interface EnrichedJournalEntry extends JournalEntrySummary {
 export default async function JournalIndexPage() {
   const t = getServerDictionary();
   const isAuthedAdmin = await isAdminAuthenticated();
-  const allEntries = await listJournalEntries();
+  const allEntries = await listJournalEntriesForRequest();
 
   // Non-admins only see published entries, and only a password-protected one
   // once they have actually unlocked it — the card otherwise names it, shows
@@ -88,13 +89,7 @@ export default async function JournalIndexPage() {
       ) : (
         <div className="journal-grid">
           {enrichedEntries.map((entry) => {
-            const dateStr = entry.frontmatter.date
-              ? new Date(entry.frontmatter.date).toLocaleDateString(t.dateLocale, {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
-                })
-              : null;
+            const dateStr = formatJournalDate(entry.frontmatter.date, t.dateLocale);
 
             return (
               <Link key={entry.slug} href={`/journal/${entry.slug}`} className="journal-card">

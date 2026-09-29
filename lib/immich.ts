@@ -11,7 +11,7 @@
  * cached answer may still be served in ./immichCache (#610).
  */
 
-import { getConfig, albumSlug, normalizeSlug, type SubpageConfig } from './config';
+import { getConfig, albumSlug, normalizeSlug, type AppConfig, type SubpageConfig } from './config';
 import { cache } from './cache';
 import { compareByCaptureTime, sortAlbumAssets, DEFAULT_ALBUM_SORT } from './albumSort';
 import { ImmichUnavailableError, isTimeout, requestJson } from './immichTransport';
@@ -88,6 +88,8 @@ export type ImageSize = 'thumbnail' | 'preview' | 'original';
 /** Enriched subpage with album metadata (for rendering cards). */
 export interface SubpageSummary {
   name: string;
+  /** The display title from gallery.yaml; visitors see this, `name` only as fallback. */
+  title?: string;
   slug: string;
   albumCount: number;
   totalAssetCount: number;
@@ -95,6 +97,16 @@ export interface SubpageSummary {
 }
 
 // Note: Album summary logging state is kept in the client instance.
+
+/** Immich's album list as cached, with the allowlist it was fetched for. */
+interface CachedAlbumList {
+  albums: ImmichAlbum[];
+  fetchedFor: string;
+}
+
+function allowlistKey(config: AppConfig): string {
+  return [...config.albums].sort().join(',');
+}
 
 // ── API Client ─────────────────────────────────────────────────
 
@@ -105,6 +117,11 @@ class ImmichClient {
   private pendingAlbumPromises = new Map<string, Promise<ImmichAlbum | null>>();
   private pendingAssetPromises = new Map<string, Promise<ImmichAsset | null>>();
 
+  /**
+   * getConfig() re-checks the content files and hands back a fresh copy on
+   * every call, so a method reads it once into a local and uses that, rather
+   * than going through this getter for each property.
+   */
   private get config() {
     return getConfig();
   }
@@ -118,8 +135,8 @@ class ImmichClient {
    * made every call return null before the fetch, so `ping()` reported the
    * server as disconnected without a single line in the log (#507).
    */
-  private get hasCredentials(): boolean {
-    const { apiUrl, apiKey } = this.config.immich;
+  private hasCredentials(config: AppConfig): boolean {
+    const { apiUrl, apiKey } = config.immich;
     return !!apiUrl && !!apiKey;
   }
 
@@ -134,8 +151,8 @@ class ImmichClient {
   }
 
   /** Cache write that carries the configured stale window. */
-  private cacheSet<T>(key: string, data: T): void {
-    cacheSetWithStale(key, data, this.config.cacheTtl, this.config.staleMaxAge);
+  private cacheSet<T>(key: string, data: T, config: AppConfig = this.config): void {
+    cacheSetWithStale(key, data, config.cacheTtl, config.staleMaxAge);
   }
 
   /** See ./immichCache — the policy lives there, testable on its own. */
@@ -156,15 +173,16 @@ class ImmichClient {
    * deployment rather than about HTTP.
    */
   private async request<T>(endpoint: string, body?: unknown): Promise<T | null> {
-    if (!this.hasCredentials) {
+    const config = this.config;
+    if (!this.hasCredentials(config)) {
       this.warnNoCredentials(endpoint);
       return null;
     }
 
     return requestJson<T>({
-      apiUrl: this.config.immich.apiUrl,
-      apiKey: this.config.immich.apiKey,
-      timeoutMs: this.config.immichTimeoutMs,
+      apiUrl: config.immich.apiUrl,
+      apiKey: config.immich.apiKey,
+      timeoutMs: config.immichTimeoutMs,
       endpoint,
       body,
     });
@@ -184,21 +202,22 @@ class ImmichClient {
     contentRange: string | null;
     status: 200 | 206;
   } | null> {
-    if (!this.hasCredentials) return null;
+    const config = this.config;
+    if (!this.hasCredentials(config)) return null;
 
     const endpoint = `/assets/${encodeURIComponent(assetId)}/video/playback`;
-    const url = `${this.config.immich.apiUrl}${endpoint}`;
+    const url = `${config.immich.apiUrl}${endpoint}`;
 
     // Bound the wait for response *headers* only. The `finally` clears the timer
     // the moment they arrive, so the body may then stream for as long as it
     // needs — a whole-request timeout would truncate playback mid-video and
     // break seeking, since every range request would restart the clock.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.config.immichTimeoutMs);
+    const timer = setTimeout(() => controller.abort(), config.immichTimeoutMs);
 
     try {
       const headers: Record<string, string> = {
-        'x-api-key': this.config.immich.apiKey,
+        'x-api-key': config.immich.apiKey,
       };
       if (rangeHeader) {
         headers['Range'] = rangeHeader;
@@ -235,13 +254,13 @@ class ImmichClient {
       if (error instanceof ImmichUnavailableError) throw error;
       console.error(
         isTimeout(error)
-          ? `[Immich] Video ${assetId} did not respond within ${this.config.immichTimeoutMs}ms`
+          ? `[Immich] Video ${assetId} did not respond within ${config.immichTimeoutMs}ms`
           : `[Immich] Video stream error for ${assetId}:`,
         error,
       );
       throw new ImmichUnavailableError(
         isTimeout(error)
-          ? `Immich did not respond within ${this.config.immichTimeoutMs}ms for video ${assetId}`
+          ? `Immich did not respond within ${config.immichTimeoutMs}ms for video ${assetId}`
           : `Cannot reach Immich to stream video ${assetId}`,
       );
     } finally {
@@ -256,24 +275,25 @@ class ImmichClient {
     assetId: string,
     size: ImageSize = 'preview',
   ): Promise<{ stream: ReadableStream; contentType: string; contentLength: string | null } | null> {
-    if (!this.hasCredentials) return null;
+    const config = this.config;
+    if (!this.hasCredentials(config)) return null;
 
     const endpoint =
       size === 'original'
         ? `/assets/${encodeURIComponent(assetId)}/original`
         : `/assets/${encodeURIComponent(assetId)}/thumbnail?size=${size}`;
 
-    const url = `${this.config.immich.apiUrl}${endpoint}`;
+    const url = `${config.immich.apiUrl}${endpoint}`;
 
     // Headers-only timeout, same reasoning as streamVideo: an original-size
     // photo is legitimately slow to transfer and must not be capped.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.config.immichTimeoutMs);
+    const timer = setTimeout(() => controller.abort(), config.immichTimeoutMs);
 
     try {
       const res = await fetch(url, {
         headers: {
-          'x-api-key': this.config.immich.apiKey,
+          'x-api-key': config.immich.apiKey,
         },
         signal: controller.signal,
       });
@@ -305,13 +325,13 @@ class ImmichClient {
       if (error instanceof ImmichUnavailableError) throw error;
       console.error(
         isTimeout(error)
-          ? `[Immich] Asset ${assetId} did not respond within ${this.config.immichTimeoutMs}ms`
+          ? `[Immich] Asset ${assetId} did not respond within ${config.immichTimeoutMs}ms`
           : `[Immich] Stream error for ${assetId}:`,
         error,
       );
       throw new ImmichUnavailableError(
         isTimeout(error)
-          ? `Immich did not respond within ${this.config.immichTimeoutMs}ms for asset ${assetId}`
+          ? `Immich did not respond within ${config.immichTimeoutMs}ms for asset ${assetId}`
           : `Cannot reach Immich to stream asset ${assetId}`,
       );
     } finally {
@@ -320,10 +340,63 @@ class ImmichClient {
   }
 
   /**
-   * Get ALL configured albums (filtered by the full allowlist).
-   * Uses ?shared=true to only fetch albums that have been shared in Immich.
+   * Every published album: the allowlist applied to Immich's album list, with
+   * the gallery.yaml title and description overrides and the resulting slug.
+   *
+   * The cache holds Immich's list as Immich sent it; the allowlist and the
+   * overrides are applied here, on every call, from the current config. They
+   * used to be applied before caching, and the admin routes' invalidateAll()
+   * runs in their own module instances (Next bundles each route separately),
+   * so after a save the public pages kept the old titles, descriptions and
+   * album set until CACHE_TTL ran out. getConfig() already follows the
+   * content files' mtimes into every instance, so deriving from it per call
+   * makes a save visible on the next request, at no Immich cost.
+   *
+   * A newly allowlisted album that is missing from the cached list (created
+   * in Immich after the list was fetched) refetches the list once per
+   * allowlist, instead of 404-ing until the TTL runs out; see listIsCurrent().
+   *
+   * `?shared=true` is inert: current Immich ignores it and answers with every
+   * album (#515). The allowlist is the whole protection.
    */
   async getAlbums(forceFresh = false): Promise<ImmichAlbum[]> {
+    const config = this.config;
+    const list = await this.loadAlbumList(forceFresh, config);
+    return this.publishedAlbums(list, config);
+  }
+
+  /** The allowlisted albums of a raw Immich list, named per gallery.yaml. */
+  private publishedAlbums(all: readonly ImmichAlbum[], config: AppConfig): ImmichAlbum[] {
+    const allowedIds = new Set(config.albums);
+    return all
+      .filter((album) => allowedIds.has(album.id))
+      .map((album) => this.withOverrides(album, config));
+  }
+
+  /**
+   * An album named as gallery.yaml says. Returns a copy: the argument is the
+   * cached entry, shared by every caller.
+   */
+  private withOverrides(album: ImmichAlbum, config: AppConfig): ImmichAlbum {
+    const name = config.albumOverrides[album.id] ?? album.albumName;
+    const description = config.albumDescriptions[album.id] ?? album.description ?? '';
+    return { ...album, albumName: name, description, slug: albumSlug(name, album.id) };
+  }
+
+  /**
+   * Whether a cached list can answer for this allowlist: it holds every
+   * allowlisted album, or it was already fetched for this exact allowlist
+   * (an album deleted in Immich stays missing, and must not cost a request
+   * per page view).
+   */
+  private listIsCurrent(entry: CachedAlbumList, config: AppConfig): boolean {
+    if (entry.fetchedFor === allowlistKey(config)) return true;
+    const known = new Set(entry.albums.map((a) => a.id));
+    return config.albums.every((id) => known.has(id));
+  }
+
+  /** Immich's album list, cached as sent. */
+  private async loadAlbumList(forceFresh: boolean, config: AppConfig): Promise<ImmichAlbum[]> {
     const cacheKey = 'albums-list';
     // forceFresh only skips the read below; it must not delete the entry
     // outright. Deleting first meant a request that then failed left every
@@ -331,8 +404,8 @@ class ImmichClient {
     // from the same key, so the old entry has to survive until cacheSet()
     // overwrites it on success.
     if (!forceFresh) {
-      const cached = cache.get<ImmichAlbum[]>(cacheKey);
-      if (cached) return cached;
+      const cached = cache.get<CachedAlbumList>(cacheKey);
+      if (cached && this.listIsCurrent(cached, config)) return cached.albums;
     }
 
     if (this.pendingAlbumsPromise) {
@@ -344,72 +417,60 @@ class ImmichClient {
         const all = await this.request<ImmichAlbum[]>('/albums?shared=true');
         if (!all) return [];
 
-        const allowedIds = new Set(this.config.albums);
-        const filtered = all
-          .filter((album) => allowedIds.has(album.id))
-          .map((album) => {
-            const name = this.config.albumOverrides[album.id] ?? album.albumName;
-            const description = this.config.albumDescriptions[album.id] ?? album.description ?? '';
-            return {
-              ...album,
-              albumName: name,
-              description,
-              slug: albumSlug(name, album.id),
-            };
-          });
-
         // Log album summary on first load so admins can see what's published
         if (!this.hasLoggedAlbums) {
           this.hasLoggedAlbums = true;
-          console.log('\n[Lightbox] Published albums:');
-          console.log('─'.repeat(80));
-
-          // Log standalone albums
-          const standaloneIds = new Set(this.config.standaloneAlbums);
-          const standalone = filtered.filter((a) => standaloneIds.has(a.id));
-          if (standalone.length > 0) {
-            console.log('  Standalone:');
-            for (const a of standalone) {
-              console.log(`    📷 ${a.albumName}`);
-              console.log(`       URL: /${a.slug}  •  ${a.assetCount} photos  •  ID: ${a.id}`);
-            }
-          }
-
-          // Log subpage groupings
-          for (const sp of this.config.subpages) {
-            const spAlbums = filtered.filter((a) => sp.albumIds.includes(a.id));
-            console.log(`  📁 ${sp.name} (/${sp.slug}):`);
-            for (const a of spAlbums) {
-              console.log(`    📷 ${a.albumName}`);
-              console.log(`       URL: /${sp.slug}/${a.slug}  •  ${a.assetCount} photos`);
-            }
-          }
-
-          const missing = this.config.albums.filter((id) => !all.some((a) => a.id === id));
-          if (missing.length > 0) {
-            console.warn(`  ⚠️  Unknown album IDs: ${missing.join(', ')}`);
-          }
-          console.log('─'.repeat(80) + '\n');
+          this.logPublishedAlbums(all, config);
         }
 
-        // Not while the install is unfinished. The dummy setup config carries an
-        // empty allowlist, so `filtered` is [] no matter what Immich returned —
-        // and caching that outlives the wizard that fixes it, because
-        // invalidateAll() runs in the install route's own module instance
-        // (Next bundles each route separately; see lib/install.ts). The gallery
-        // then looks empty until the server restarts.
-        if (!this.config.needsSetup) {
-          this.cacheSet(cacheKey, filtered);
-        }
-        return filtered;
+        // Cached even while setup is unfinished: the list is Immich's, and the
+        // setup config's empty allowlist is applied on the way out, not baked
+        // into the entry.
+        const entry: CachedAlbumList = { albums: all, fetchedFor: allowlistKey(config) };
+        this.cacheSet(cacheKey, entry, config);
+        return all;
       } catch (error) {
-        return this.staleOrThrow<ImmichAlbum[]>(cacheKey, error, 'album list');
+        return this.staleOrThrow<CachedAlbumList>(cacheKey, error, 'album list').albums;
       } finally {
         this.pendingAlbumsPromise = null;
       }
     })();
 
     return this.pendingAlbumsPromise;
+  }
+
+  /** The published albums, once per process, so admins can see what is live. */
+  private logPublishedAlbums(all: readonly ImmichAlbum[], config: AppConfig): void {
+    const filtered = this.publishedAlbums(all, config);
+    console.log('\n[Lightbox] Published albums:');
+    console.log('─'.repeat(80));
+
+    // Log standalone albums
+    const standaloneIds = new Set(config.standaloneAlbums);
+    const standalone = filtered.filter((a) => standaloneIds.has(a.id));
+    if (standalone.length > 0) {
+      console.log('  Standalone:');
+      for (const a of standalone) {
+        console.log(`    📷 ${a.albumName}`);
+        console.log(`       URL: /${a.slug}  •  ${a.assetCount} photos  •  ID: ${a.id}`);
+      }
+    }
+
+    // Log subpage groupings
+    for (const sp of config.subpages) {
+      const spAlbums = filtered.filter((a) => sp.albumIds.includes(a.id));
+      console.log(`  📁 ${sp.name} (/${sp.slug}):`);
+      for (const a of spAlbums) {
+        console.log(`    📷 ${a.albumName}`);
+        console.log(`       URL: /${sp.slug}/${a.slug}  •  ${a.assetCount} photos`);
+      }
+    }
+
+    const missing = config.albums.filter((id) => !all.some((a) => a.id === id));
+    if (missing.length > 0) {
+      console.warn(`  ⚠️  Unknown album IDs: ${missing.join(', ')}`);
+    }
+    console.log('─'.repeat(80) + '\n');
   }
 
   /**
@@ -446,6 +507,7 @@ class ImmichClient {
 
       return {
         name: sp.name,
+        ...(sp.title ? { title: sp.title } : {}),
         slug: sp.slug,
         albumCount: spAlbums.length,
         totalAssetCount: spAlbums.reduce((sum, a) => sum + a.assetCount, 0),
@@ -465,9 +527,13 @@ class ImmichClient {
     const subpage = this.config.subpages.find((sp) => sp.slug === wanted && sp.enabled !== false);
     if (!subpage) return null;
 
-    const allAlbums = await this.getAlbums(forceFresh);
-    const subpageAlbumIds = new Set(subpage.albumIds);
-    const albums = allAlbums.filter((a) => subpageAlbumIds.has(a.id));
+    // In the subpage's own order (gallery.yaml, as arranged in the page
+    // builder), not Immich's: filtering the list kept Immich's order, so the
+    // cover grid ignored every rearrangement.
+    const byId = new Map((await this.getAlbums(forceFresh)).map((a) => [a.id, a]));
+    const albums = [...new Set(subpage.albumIds)]
+      .map((id) => byId.get(id))
+      .filter((a): a is ImmichAlbum => a !== undefined);
 
     return { subpage, albums };
   }
@@ -526,20 +592,23 @@ class ImmichClient {
    * saved config, which is right for the public site but wrong for the page
    * builder: an album just dragged in has not been saved yet, so the picker
    * and the reorder editor would come up empty. Admin auth is the gate here.
+   *
+   * The public site uses it too: album blocks in journal entries, content
+   * pages and essay files, and the published-asset set that covers them. The
+   * author's pick is the gate there, not the allowlist.
+   *
+   * It goes through the same cached, coalesced load as getAlbum(), so those
+   * renders cost no Immich request within CACHE_TTL, and an album that is also
+   * allowlisted is fetched once for both. That load yields exactly this list —
+   * trashed assets dropped, sorted by capture time in the album's own order —
+   * which is the order the site renders under `sort: immich`, and the baseline
+   * the reorder editor has to match. `forceFresh` skips the cached read for
+   * the admin editors, which must show an album as Immich has it now.
    */
-  async getAlbumAssetsRaw(albumId: string): Promise<ImmichAsset[]> {
-    const [album, assets] = await Promise.all([
-      this.request<ImmichAlbum>(`/albums/${encodeURIComponent(albumId)}`),
-      this.fetchAlbumAssets(albumId),
-    ]);
-    if (!album) return [];
-
-    // Same order the site would render under `sort: immich`. The reorder
-    // editor's baseline has to match it exactly, or the assets it shows as
-    // "follows automatically" would not be the ones that actually follow.
-    return assets
-      .filter((a) => !a.isTrashed)
-      .sort(compareByCaptureTime(album.order === 'asc' ? 1 : -1));
+  async getAlbumAssetsRaw(albumId: string, forceFresh = false): Promise<ImmichAsset[]> {
+    const album = await this.loadAlbum(albumId, forceFresh, true);
+    // A copy: the cached entry is shared with every other caller.
+    return album ? [...album.assets] : [];
   }
 
   /**
@@ -555,13 +624,17 @@ class ImmichClient {
    * be sorting the same array.
    */
   private withSort(album: ImmichAlbum): ImmichAlbum {
-    const mode = this.config.albumSortModes[album.id] ?? DEFAULT_ALBUM_SORT;
+    const config = this.config;
+    const mode = config.albumSortModes[album.id] ?? DEFAULT_ALBUM_SORT;
     return {
-      ...album,
+      // Titles and descriptions the same way, for the same reason: the cache
+      // holds the album as Immich has it, so a gallery.yaml override takes
+      // effect on the next request, in every module instance.
+      ...this.withOverrides(album, config),
       assets: sortAlbumAssets(album.assets, {
         mode,
         immichOrder: album.order,
-        manualOrder: this.config.albumManualOrders[album.id],
+        manualOrder: config.albumManualOrders[album.id],
       }),
     };
   }
@@ -571,10 +644,28 @@ class ImmichClient {
     return album ? this.withSort(album) : null;
   }
 
+  /**
+   * An album for a client proofing link, whether or not it is published.
+   *
+   * Client galleries are usually not part of the public portfolio, so the
+   * allowlist cannot be the gate here. The proofing session is: callers reach
+   * this only after resolving a valid, unexpired session token, and pass that
+   * session's own album ID — never one taken from the request.
+   */
+  async getProofingAlbum(albumId: string): Promise<ImmichAlbum | null> {
+    const album = await this.loadAlbum(albumId, false, true);
+    return album ? this.withSort(album) : null;
+  }
+
   /** The cached load. Always yields the canonical Immich order; see withSort(). */
-  private async loadAlbum(albumId: string, forceFresh: boolean): Promise<ImmichAlbum | null> {
+  private async loadAlbum(
+    albumId: string,
+    forceFresh: boolean,
+    /** Only for getProofingAlbum() and getAlbumAssetsRaw(); see there. */
+    bypassAllowlist = false,
+  ): Promise<ImmichAlbum | null> {
     // Security: only serve configured albums
-    if (!this.config.albums.includes(albumId)) {
+    if (!bypassAllowlist && !this.config.albums.includes(albumId)) {
       console.warn(`[Immich] Album ${albumId} is not in LIGHTBOX_ALBUMS`);
       return null;
     }
@@ -627,12 +718,8 @@ class ImmichClient {
         // getAlbum(); see withSort().
         album.assets.sort(compareByCaptureTime(album.order === 'asc' ? 1 : -1));
 
-        const name = this.config.albumOverrides[album.id] ?? album.albumName;
-        const description = this.config.albumDescriptions[album.id] ?? album.description ?? '';
-        album.albumName = name;
-        album.description = description;
-        album.slug = albumSlug(name, album.id);
-
+        // Cached without the gallery.yaml title and description: withSort()
+        // applies them on the way out, from the current config.
         this.cacheSet(cacheKey, album);
         return album;
       } catch (error) {
@@ -662,16 +749,17 @@ class ImmichClient {
   ): Promise<ImmichAlbum | null> {
     const albums = await this.getAlbums(forceFresh);
 
+    const config = this.config;
     let routeIds: Set<string>;
     if (subpageSlug) {
       const wantedSubpage = normalizeSlug(subpageSlug);
-      const subpage = this.config.subpages.find(
+      const subpage = config.subpages.find(
         (sp) => sp.slug === wantedSubpage && sp.enabled !== false,
       );
       if (!subpage) return null;
       routeIds = new Set(subpage.albumIds);
     } else {
-      routeIds = new Set(this.config.standaloneAlbums);
+      routeIds = new Set(config.standaloneAlbums);
     }
     const searchSet = albums.filter((a) => routeIds.has(a.id));
 

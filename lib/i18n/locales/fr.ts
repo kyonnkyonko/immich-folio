@@ -8,7 +8,9 @@
 
 import type { Dictionary } from '../index';
 
-const plural = (n: number, one: string, other: string) => `${n} ${n === 1 ? one : other}`;
+// CLDR: French puts 0 in the singular ("0 photo", "0 jour"), unlike English.
+const isOne = (n: number) => n === 0 || n === 1;
+const plural = (n: number, one: string, other: string) => `${n} ${isOne(n) ? one : other}`;
 
 export const fr: Dictionary = {
   dateLocale: 'fr-FR',
@@ -19,6 +21,8 @@ export const fr: Dictionary = {
     map: 'Carte',
     journal: 'Journal',
     skipToContent: 'Aller au contenu',
+    mainNavAria: 'Navigation principale',
+    heroNavAria: 'Rubriques',
     openMenu: 'Ouvrir le menu',
     closeMenu: 'Fermer le menu',
   },
@@ -44,12 +48,15 @@ export const fr: Dictionary = {
     nextEntryAria: (title: string) => `Article suivant : ${title}`,
     entryNavAria: 'Navigation entre les articles du journal',
     loadingGallery: 'Chargement de la galerie',
+    gallery: 'Galerie',
     loadingPhotos: 'Chargement des photos',
     downloadAlbum: 'Télécharger l’album',
   },
 
   home: {
     enter: 'Entrer',
+    pauseSlideshow: 'Mettre le diaporama en pause',
+    playSlideshow: 'Lancer le diaporama',
   },
 
   error: {
@@ -58,8 +65,6 @@ export const fr: Dictionary = {
     errorTitle: 'Une erreur est survenue',
     errorText:
       'Cette page n’a pas pu être chargée. C’est généralement temporaire — réessayez dans un instant.',
-    siteErrorText:
-      'Ce site n’a pas pu être chargé. C’est généralement temporaire — réessayez dans un instant.',
     tryAgain: 'Réessayer',
     reference: (digest: string) => `Référence : ${digest}`,
   },
@@ -71,6 +76,7 @@ export const fr: Dictionary = {
     immichUnavailable:
       'La photothèque est momentanément indisponible. Veuillez réessayer dans un instant.',
     back: 'Retour à la galerie',
+    limitReached: 'La limite de téléchargements de ce lien est atteinte.',
   },
 
   theme: {
@@ -82,11 +88,18 @@ export const fr: Dictionary = {
   password: {
     subtitle: 'Cette galerie est protégée par un mot de passe.',
     siteSubtitle: 'Ce site est protégé par un mot de passe.',
+    pageSubtitle: 'Cette page est protégée par un mot de passe.',
+    journalSubtitle: 'Cet article du journal est protégé par un mot de passe.',
+    protectedPage: 'Page protégée',
     placeholder: 'Saisissez le mot de passe',
     submit: 'Entrer',
     verifying: 'Vérification…',
     incorrect: 'Mot de passe incorrect. Veuillez réessayer.',
     failed: 'Impossible de vérifier le mot de passe. Veuillez réessayer plus tard.',
+    tooManyAttempts: (seconds: number | null) =>
+      seconds
+        ? `Trop de tentatives. Veuillez réessayer dans ${seconds} ${seconds === 1 ? 'seconde' : 'secondes'}.`
+        : 'Trop de tentatives. Veuillez réessayer plus tard.',
   },
 
   about: {
@@ -104,6 +117,9 @@ export const fr: Dictionary = {
     loading: 'Chargement de la carte…',
     loadFailed: (status: number) => `Échec du chargement des données de la carte (${status})`,
     initFailed: 'Impossible d’initialiser la carte',
+    zoomIn: 'Zoom avant',
+    zoomOut: 'Zoom arrière',
+    leafletTitle: 'Une bibliothèque JavaScript pour cartes interactives',
   },
 
   subpage: {
@@ -130,6 +146,7 @@ export const fr: Dictionary = {
 
   lightbox: {
     viewer: 'Visionneuse d’images',
+    position: (n: number, total: number) => `Photo ${n} sur ${total}`,
     openPhoto: (n: number) => `Afficher la photo ${n}`,
     close: 'Fermer',
     closeTitle: 'Fermer (Échap)',
@@ -182,7 +199,8 @@ export const fr: Dictionary = {
     saved: 'Enregistré',
     favorite: 'Favori',
     showAll: 'Tout afficher',
-    selected: (n: number) => `❤️ ${n} ${n === 1 ? 'sélectionnée' : 'sélectionnées'}`,
+    filterEmpty: 'Aucune photo sélectionnée.',
+    selected: (n: number) => `❤️ ${n} ${isOne(n) ? 'sélectionnée' : 'sélectionnées'}`,
     shareExport: 'Partager & exporter',
     modalTitle: (n: number) => `❤️ Sélection (${n})`,
     closeModal: 'Fermer la fenêtre',
@@ -204,6 +222,32 @@ export const fr: Dictionary = {
     mailSubject: (n: number) => `Sélection de photos (${n})`,
     mailBody: (list: string, url: string) =>
       `Bonjour,\n\nVoici ma sélection de photos :\n\n${list}\n\nLien de partage : ${url}\n\nCordialement,`,
+  },
+
+  proofSession: {
+    greeting: (name: string) => `Sélection pour ${name}`,
+    intro:
+      'Touchez le cœur sur les photos que vous souhaitez. Votre sélection est enregistrée au fur et à mesure — vous pouvez revenir avec ce lien à tout moment.',
+    saving: 'Enregistrement…',
+    saved: 'Sélection enregistrée',
+    saveFailed:
+      'Votre sélection n’a pas pu être enregistrée. Vérifiez votre connexion et réessayez.',
+    review: 'Vérifier & envoyer',
+    modalTitle: (n: number) => `Votre sélection (${n})`,
+    empty: 'Aucune photo sélectionnée pour le moment.',
+    submit: 'Envoyer la sélection',
+    submitting: 'Envoi…',
+    confirmSubmit: (n: number) =>
+      `Envoyer ${plural(n, 'photo', 'photos')} ? La sélection ne pourra plus être modifiée ensuite.`,
+    submitted: 'Merci — votre sélection a été envoyée.',
+    locked: 'Cette sélection a été envoyée et ne peut plus être modifiée.',
+    validUntil: (date: string) => `Ce lien est valable jusqu’au ${date}.`,
+    expiredTitle: 'Ce lien a expiré',
+    expiredText: 'Demandez un nouveau lien à votre photographe.',
+    downloadSelection: 'Télécharger la sélection (.zip)',
+    downloadAll: 'Télécharger toutes les photos (.zip)',
+    downloadsLeft: (n: number) =>
+      `${plural(n, 'téléchargement restant', 'téléchargements restants')}`,
   },
 
   legal: {
@@ -236,7 +280,7 @@ export const fr: Dictionary = {
     tooMany: 'Trop de messages en peu de temps. Réessayez dans une minute.',
     failed: 'Le message n’a pas pu être envoyé. Réessayez plus tard.',
     privacy: (days: number) =>
-      `Votre message est conservé sur le serveur de ce site, sert uniquement à vous répondre et est supprimé après ${days} ${days === 1 ? 'jour' : 'jours'}.`,
+      `Votre message est conservé sur le serveur de ce site, sert uniquement à vous répondre et est supprimé après ${days} ${isOne(days) ? 'jour' : 'jours'}.`,
   },
 
   privacy: {

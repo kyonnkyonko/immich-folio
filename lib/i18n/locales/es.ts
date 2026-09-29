@@ -19,6 +19,8 @@ export const es: Dictionary = {
     map: 'Mapa',
     journal: 'Diario',
     skipToContent: 'Saltar al contenido',
+    mainNavAria: 'Navegación principal',
+    heroNavAria: 'Secciones',
     openMenu: 'Abrir menú',
     closeMenu: 'Cerrar menú',
   },
@@ -44,12 +46,15 @@ export const es: Dictionary = {
     nextEntryAria: (title: string) => `Entrada siguiente: ${title}`,
     entryNavAria: 'Navegación entre entradas del diario',
     loadingGallery: 'Cargando la galería',
+    gallery: 'Galería',
     loadingPhotos: 'Cargando fotos',
     downloadAlbum: 'Descargar álbum',
   },
 
   home: {
     enter: 'Entrar',
+    pauseSlideshow: 'Pausar la presentación',
+    playSlideshow: 'Reproducir la presentación',
   },
 
   error: {
@@ -58,8 +63,6 @@ export const es: Dictionary = {
     errorTitle: 'Algo ha salido mal',
     errorText:
       'No se ha podido cargar esta página. Suele ser algo temporal: inténtalo de nuevo en un momento.',
-    siteErrorText:
-      'No se ha podido cargar este sitio. Suele ser algo temporal: inténtalo de nuevo en un momento.',
     tryAgain: 'Reintentar',
     reference: (digest: string) => `Referencia: ${digest}`,
   },
@@ -71,6 +74,7 @@ export const es: Dictionary = {
     immichUnavailable:
       'La fototeca no está disponible en este momento. Vuelve a intentarlo en breve.',
     back: 'Volver a la galería',
+    limitReached: 'Se ha alcanzado el límite de descargas de este enlace.',
   },
 
   theme: {
@@ -82,11 +86,18 @@ export const es: Dictionary = {
   password: {
     subtitle: 'Esta galería está protegida con contraseña.',
     siteSubtitle: 'Este sitio está protegido con contraseña.',
+    pageSubtitle: 'Esta página está protegida con contraseña.',
+    journalSubtitle: 'Esta entrada del diario está protegida con contraseña.',
+    protectedPage: 'Página protegida',
     placeholder: 'Introduce la contraseña',
     submit: 'Entrar',
     verifying: 'Verificando…',
     incorrect: 'Contraseña incorrecta. Inténtalo de nuevo.',
     failed: 'No se ha podido verificar la contraseña. Inténtalo más tarde.',
+    tooManyAttempts: (seconds: number | null) =>
+      seconds
+        ? `Demasiados intentos. Inténtalo de nuevo en ${seconds} ${seconds === 1 ? 'segundo' : 'segundos'}.`
+        : 'Demasiados intentos. Inténtalo más tarde.',
   },
 
   about: {
@@ -104,6 +115,9 @@ export const es: Dictionary = {
     loading: 'Cargando el mapa…',
     loadFailed: (status: number) => `No se pudieron cargar los datos del mapa (${status})`,
     initFailed: 'No se pudo inicializar el mapa',
+    zoomIn: 'Acercar',
+    zoomOut: 'Alejar',
+    leafletTitle: 'Una biblioteca de JavaScript para mapas interactivos',
   },
 
   subpage: {
@@ -130,6 +144,7 @@ export const es: Dictionary = {
 
   lightbox: {
     viewer: 'Visor de imágenes',
+    position: (n: number, total: number) => `Foto ${n} de ${total}`,
     openPhoto: (n: number) => `Ver foto ${n}`,
     close: 'Cerrar',
     closeTitle: 'Cerrar (Esc)',
@@ -181,6 +196,7 @@ export const es: Dictionary = {
     saved: 'Guardado',
     favorite: 'Favorito',
     showAll: 'Mostrar todo',
+    filterEmpty: 'No hay fotos seleccionadas.',
     selected: (n: number) => `❤️ ${n} ${n === 1 ? 'seleccionada' : 'seleccionadas'}`,
     shareExport: 'Compartir y exportar',
     modalTitle: (n: number) => `❤️ Selección (${n})`,
@@ -203,6 +219,30 @@ export const es: Dictionary = {
     mailSubject: (n: number) => `Selección de fotos (${n})`,
     mailBody: (list: string, url: string) =>
       `Hola:\n\nEsta es mi selección de fotos:\n\n${list}\n\nEnlace: ${url}\n\nUn saludo,`,
+  },
+
+  proofSession: {
+    greeting: (name: string) => `Selección para ${name}`,
+    intro:
+      'Toca el corazón en las fotos que quieras. Tu selección se guarda sobre la marcha: puedes volver con este enlace cuando quieras.',
+    saving: 'Guardando…',
+    saved: 'Selección guardada',
+    saveFailed: 'No se ha podido guardar tu selección. Revisa la conexión e inténtalo de nuevo.',
+    review: 'Revisar y enviar',
+    modalTitle: (n: number) => `Tu selección (${n})`,
+    empty: 'Todavía no has seleccionado ninguna foto.',
+    submit: 'Enviar selección',
+    submitting: 'Enviando…',
+    confirmSubmit: (n: number) =>
+      `¿Enviar ${plural(n, 'foto', 'fotos')}? Después no podrás cambiar la selección.`,
+    submitted: 'Gracias: tu selección se ha enviado.',
+    locked: 'Esta selección ya se ha enviado y no se puede modificar.',
+    validUntil: (date: string) => `Este enlace es válido hasta el ${date}.`,
+    expiredTitle: 'Este enlace ha caducado',
+    expiredText: 'Pide un enlace nuevo a tu fotógrafo.',
+    downloadSelection: 'Descargar selección (.zip)',
+    downloadAll: 'Descargar todas las fotos (.zip)',
+    downloadsLeft: (n: number) => `${plural(n, 'descarga restante', 'descargas restantes')}`,
   },
 
   legal: {

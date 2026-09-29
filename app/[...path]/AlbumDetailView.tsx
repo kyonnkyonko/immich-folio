@@ -11,14 +11,16 @@ import { albumMetaDetail } from '@/lib/albumMeta';
 import { AlbumNav } from '@/components/AlbumNav';
 import { StructuredData } from '@/components/StructuredData';
 import type { AlbumNavPair } from '@/lib/albumNav';
+import type { ProofSessionInit } from '@/components/ProofingContext';
 
 interface AlbumDetailViewProps {
   album: ImmichAlbum;
   images: PhotoItem[];
   layout: GridConfig['layout'];
   gridStyle: React.CSSProperties;
-  backLinkHref: string;
-  backLinkLabel: string;
+  /** Omitted on a client proofing link, which has nowhere to go back to. */
+  backLinkHref?: string;
+  backLinkLabel?: string;
   subtitle?: string;
   heroImageUrl?: string;
   heroBlurDataURL?: string;
@@ -32,6 +34,12 @@ interface AlbumDetailViewProps {
   /** Offer the "send by email" button in the proofing modal. */
   allowMailto?: boolean;
   /**
+   * `encodeEmail()` of where the proofing dialog's "email to photographer"
+   * goes, when one is configured (#736). Encoded, like every address the site
+   * renders, so the plain form stays out of the HTML and the RSC payload.
+   */
+  encodedMailto?: string;
+  /**
    * The ZIP endpoint for this album, when it offers downloads (#475). Renders a
    * "download album" link in the header and lets the proofing modal offer a
    * "download selected" action.
@@ -41,6 +49,10 @@ interface AlbumDetailViewProps {
   nav?: AlbumNavPair;
   /** JSON-LD for this album, or null when no site URL is configured (#472). */
   structuredData?: Record<string, unknown> | null;
+  /** A client proofing link's session; see PhotoGrid. */
+  proofSession?: ProofSessionInit;
+  /** Rendered under the title — the proofing link's greeting and notes. */
+  intro?: React.ReactNode;
 }
 
 export function AlbumDetailView({
@@ -58,9 +70,12 @@ export function AlbumDetailView({
   showGear = true,
   proofing,
   allowMailto,
+  encodedMailto,
   downloadArchiveUrl,
   nav,
   structuredData,
+  proofSession,
+  intro,
 }: AlbumDetailViewProps) {
   const metaDetail = albumMetaDetail(album, showGear);
   const t = getServerDictionary();
@@ -86,7 +101,7 @@ export function AlbumDetailView({
       )}
       <div className={`album-header${heroImageUrl ? ' album-header--has-hero' : ''}`}>
         <div className="album-header__main">
-          <BackLink href={backLinkHref} label={backLinkLabel} />
+          {backLinkHref && <BackLink href={backLinkHref} label={backLinkLabel ?? ''} />}
           <h1 className="album-header__title">{album.albumName}</h1>
           {subtitle && (
             <p className="subpage-subtitle" style={{ textAlign: 'left', marginLeft: 0 }}>
@@ -94,6 +109,7 @@ export function AlbumDetailView({
             </p>
           )}
           {album.description && <p className="album-header__description">{album.description}</p>}
+          {intro}
           {downloadArchiveUrl && (
             <a className="album-header__download" href={downloadArchiveUrl}>
               <svg
@@ -127,8 +143,10 @@ export function AlbumDetailView({
         showExifPanel={showExifPanel}
         proofing={proofing}
         allowMailto={allowMailto}
+        encodedMailto={encodedMailto}
         downloadArchiveUrl={downloadArchiveUrl}
         albumName={album.albumName}
+        proofSession={proofSession}
       />
       {nav && <AlbumNav {...nav} />}
     </>

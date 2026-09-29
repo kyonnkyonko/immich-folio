@@ -12,7 +12,13 @@ import { useDictionary } from './I18nProvider';
 interface PasswordGateProps {
   slug: string;
   title: string;
-  type?: 'subpage' | 'album' | 'journal' | 'site';
+  type?: 'subpage' | 'album' | 'journal' | 'page' | 'site';
+}
+
+/** Whole seconds from a `Retry-After` header, or null when there is none. */
+function retryAfterSeconds(res: Response): number | null {
+  const seconds = Number.parseInt(res.headers.get('retry-after') ?? '', 10);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
 }
 
 export default function PasswordGate({ slug, title, type = 'subpage' }: PasswordGateProps) {
@@ -35,9 +41,15 @@ export default function PasswordGate({ slug, title, type = 'subpage' }: Password
 
       if (res.ok) {
         window.location.reload();
-      } else {
+      } else if (res.status === 401) {
         setError(t.password.incorrect);
         setPassword('');
+      } else if (res.status === 429) {
+        // The limit says nothing about the password, which may well be right:
+        // keep it in the field and say when the next attempt will be heard.
+        setError(t.password.tooManyAttempts(retryAfterSeconds(res)));
+      } else {
+        setError(t.password.failed);
       }
     } catch {
       setError(t.password.failed);
@@ -51,7 +63,13 @@ export default function PasswordGate({ slug, title, type = 'subpage' }: Password
       <div className={styles.card}>
         <h2 className={styles.title}>{title}</h2>
         <p className={styles.subtitle}>
-          {type === 'site' ? t.password.siteSubtitle : t.password.subtitle}
+          {type === 'site'
+            ? t.password.siteSubtitle
+            : type === 'page'
+              ? t.password.pageSubtitle
+              : type === 'journal'
+                ? t.password.journalSubtitle
+                : t.password.subtitle}
         </p>
 
         <form onSubmit={handleSubmit} className={styles.form}>

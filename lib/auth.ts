@@ -1,5 +1,6 @@
 /**
- * Password gating for subpages, albums, journal entries and the site as a whole.
+ * Password gating for subpages, albums, journal entries, content pages and the
+ * site as a whole.
  * Uses HMAC tokens stored in HttpOnly cookies — no database needed.
  *
  * Token = HMAC-SHA256(slug + passwordSecret, authSecret)
@@ -11,12 +12,12 @@ import { getConfig, SubpageConfig } from './config';
 // From the pure schema module, not the config barrel: tests that stub out
 // '@/lib/config' wholesale would otherwise lose this helper.
 import { normalizeSlug } from './config/schema';
-import { verifyScrypt, generateScryptHash, isScryptHash } from './password';
+import { verifyScrypt, generateScryptHash, isScryptHash, burnScrypt } from './password';
 
 const TOKEN_EXPIRY_HOURS = 24;
 
 /** What a password can protect. */
-export type ProtectedType = 'subpage' | 'album' | 'journal' | 'site';
+export type ProtectedType = 'subpage' | 'album' | 'journal' | 'page' | 'site';
 
 /**
  * Key used for the site-wide gate. There is only ever one, so it is a constant
@@ -39,15 +40,24 @@ export const SITE_AUTH_KEY = 'site';
  */
 const SITE_TOKEN_KEY = '__site__';
 
-/** The key that actually gets signed: only the site gate is remapped. */
+/**
+ * The key that actually gets signed. The site gate is remapped (see above), and
+ * a content page is prefixed: a page and a subpage or journal entry of the same
+ * slug and password would otherwise sign identical tokens, and a visitor could
+ * copy one cookie's value into the other's name. `page:` cannot be a slug —
+ * isValidSlug() rejects the colon.
+ */
 function tokenKey(key: string, type: ProtectedType): string {
-  return type === 'site' ? SITE_TOKEN_KEY : key;
+  if (type === 'site') return SITE_TOKEN_KEY;
+  if (type === 'page') return `page:${key}`;
+  return key;
 }
 
 const TYPE_LABELS: Record<ProtectedType, string> = {
   subpage: 'Subpage',
   album: 'Album',
   journal: 'Journal entry',
+  page: 'Page',
   site: 'Site',
 };
 
@@ -78,10 +88,12 @@ function authToken(key: string, passwordSecret: string, expiresAt: number): stri
 import nodeFs from 'fs';
 import { parseFrontmatter } from './journal';
 import { resolveJournalFilePath } from './admin/journal-service';
+import { readPageSync } from './admin/pages-service';
 
 function cookieName(key: string, type: ProtectedType): string {
   if (type === 'subpage') return `lb_auth_${key}`;
   if (type === 'journal') return `lb_auth_journal_${key}`;
+  if (type === 'page') return `lb_auth_page_${key}`;
   if (type === 'site') return SITE_AUTH_COOKIE;
   return `lb_auth_album_${key}`;
 }
@@ -107,7 +119,9 @@ export const SITE_AUTH_COOKIE = 'lb_site_auth';
  *
  * An album listed on the home page is published there whatever else lists it,
  * so it stays reachable. Where the only routes are subpages, one of them has
- * to be open — which mirrors what the visitor could actually have clicked.
+ * to be open — which mirrors what the visitor could actually have clicked. A
+ * subpage taken offline with `enabled: false` is no route at all, so an album
+ * listed only there is not reachable, whatever its password.
  */
 export function isAlbumReachable(
   albumId: string,
@@ -121,7 +135,7 @@ export function isAlbumReachable(
   const routes = config.subpages.filter(
     (sp) => sp.enabled !== false && sp.albumIds.includes(albumId),
   );
-  if (routes.length === 0) return true;
+  if (routes.length === 0) return false;
 
   return routes.some((sp) => isAuthenticated(sp.slug, getCookie, 'subpage'));
 }
@@ -175,6 +189,9 @@ function findPassword(key: string, type: ProtectedType): string | undefined {
     } catch {}
     return undefined;
   }
+  if (type === 'page') {
+    return readPageSync(key)?.parsed.frontmatter.password || undefined;
+  }
   return undefined;
 }
 
@@ -217,8 +234,13 @@ export async function authenticate(
   type: ProtectedType = 'subpage',
   secure = true,
 ): Promise<string | null> {
+  // Every path below runs exactly one scrypt, so the reply time does not tell a
+  // prober which keys exist, which carry a password, or how it is stored.
   const storedPassword = findPassword(key, type);
-  if (!storedPassword) return null;
+  if (!storedPassword) {
+    await burnScrypt(password);
+    return null;
+  }
 
   let isValid = false;
 
@@ -229,6 +251,7 @@ export async function authenticate(
         `   Please switch temporarily to plaintext in your gallery.yaml, log in again\n` +
         `   to see your new secure "scrypt:..." hash in the logs, and update your file.\n`,
     );
+    await burnScrypt(password);
     return null;
   }
 
@@ -247,7 +270,10 @@ export async function authenticate(
       .digest();
     isValid = crypto.timingSafeEqual(attemptHash, storedHash);
 
-    if (isValid) {
+    if (!isValid) {
+      await burnScrypt(password);
+    } else {
+      // The success path pays its scrypt here, for the recommended hash.
       const recommendedHash = await generateScryptHash(storedPassword);
       console.warn(
         `\n⚠️  SECURITY WARNING: ${TYPE_LABELS[type]} "${key}" is using a plaintext password${type === 'site' ? ' in settings.yaml' : ' in gallery.yaml'}.\n` +

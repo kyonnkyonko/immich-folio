@@ -1,10 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Icons from '../Icons';
 import type { SaveStatus } from '../SaveBar';
 import { useDraft, readDraft } from '../useDraft';
 import { useContentRestored } from '../contentRestored';
+import { useVersionedSave } from '../useVersionedSave';
+import { useLatest } from '../useLatest';
 
 interface AboutMeta {
   portrait?: string;
@@ -54,6 +56,8 @@ export function useAboutEditor(active: boolean) {
   const [aboutStatus, setAboutStatus] = useState<SaveStatus>(null);
   const [aboutGearText, setAboutGearText] = useState('');
   const [serverAbout, setServerAbout] = useState<AboutDraft | null>(null);
+  /** The fields as last rendered: tell a finished save whether editing went on meanwhile. */
+  const latest = useLatest({ meta: aboutMeta, body: aboutBody, gearText: aboutGearText });
 
   // Unsaved About edits survive a tab switch or Reload, like settings (#592).
   const draft = useDraft<AboutDraft>(
@@ -62,6 +66,9 @@ export function useAboutEditor(active: boolean) {
     aboutDirty,
   );
   const loadDraft = draft.load;
+  /** about.md as loaded, sent back on save so a change elsewhere is caught (#601). */
+  const versionRef = useRef<string | null>(null);
+  const versionedSave = useVersionedSave();
 
   const applyAbout = (value: AboutDraft) => {
     setAboutMeta(value.meta);
@@ -82,6 +89,7 @@ export function useAboutEditor(active: boolean) {
         );
       }
       const data = await res.json();
+      versionRef.current = typeof data.version === 'string' ? data.version : null;
       const loaded: AboutDraft = {
         meta: data.meta || {},
         body: data.body || '',
@@ -128,22 +136,37 @@ export function useAboutEditor(active: boolean) {
     }
 
     try {
-      const res = await fetch('/api/admin/about', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meta: cleanedMeta, body: aboutBody }),
-      });
-      if (res.ok) {
-        const data = await res.json();
+      const result = await versionedSave(
+        '/api/admin/about',
+        { meta: cleanedMeta, body: aboutBody },
+        versionRef,
+        'The About page',
+      );
+      if (result.kind === 'reload') {
+        draft.discard();
+        await loadAboutContent();
+      } else if (result.kind === 'keep') {
+        setAboutStatus({ kind: 'error', message: 'Not saved — the About page changed elsewhere.' });
+      } else if (result.kind === 'saved') {
+        const data = result.data;
         const saved: AboutDraft = { meta: cleanedMeta, body: aboutBody, gearText: aboutGearText };
+        // Edited while the request was out: those edits are not saved yet.
+        const now = latest.current;
+        const editedMeanwhile =
+          now.meta !== aboutMeta || now.body !== aboutBody || now.gearText !== aboutGearText;
         setServerAbout(saved);
-        draft.saved(aboutFingerprint(saved));
-        setAboutDirty(false);
-        setAboutStatus({ kind: 'success', message: data.message || 'Saved!' });
+        draft.saved(aboutFingerprint(saved), editedMeanwhile);
+        if (!editedMeanwhile) setAboutDirty(false);
+        setAboutStatus({
+          kind: 'success',
+          message: typeof data.message === 'string' ? data.message : 'Saved!',
+        });
         setTimeout(() => setAboutStatus(null), 4000);
       } else {
-        const err = await res.json();
-        setAboutStatus({ kind: 'error', message: `Error: ${err.error}` });
+        setAboutStatus({
+          kind: 'error',
+          message: `Error: ${result.data?.error ?? `HTTP ${result.res.status}`}`,
+        });
       }
     } catch {
       setAboutStatus({ kind: 'error', message: 'Error: Failed to save' });

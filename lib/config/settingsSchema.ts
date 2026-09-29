@@ -29,6 +29,10 @@
  * to the preset's own value for anything that is not the right type, which
  * covers hand-edited YAML as well as a save from this panel.
  *
+ * **Values the panel offers an input for** are the exception, checked with the
+ * resolvers' own rules in `settingValues.ts`: the site URL, the accent and the
+ * grid columns and gap, which a save used to accept and the site then ignored.
+ *
  * **Unknown keys pass through.** There is no `schemaVersion` and no migration
  * code, so configurations older and newer than this build are both in the wild.
  * A key this version has never heard of is not evidence of a mistake, and
@@ -84,7 +88,7 @@ export const settingsSchema = z.looseObject({
   scrollToTop: bool,
   analytics: bool,
 
-  proofing: z.looseObject({ enabled: bool, allowMailto: bool }).optional(),
+  proofing: z.looseObject({ enabled: bool, allowMailto: bool, email: str }).optional(),
 
   // Checked separately in validateSettings — see themeObjectSchema.
   theme: z.unknown().optional(),

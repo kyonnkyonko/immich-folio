@@ -3,30 +3,25 @@
  *
  * Single segment:
  *   - If slug matches a subpage → render subpage album grid
+ *   - If slug matches a content page (content/pages/<slug>.md) → render it
  *   - If slug matches a standalone album → render album detail
  *
  * Two segments:
  *   - Treat as subpage-slug/album-slug → render album detail
  *     with back-link to the subpage
+ *
+ * Three or more segments: 404.
  */
 
 import { cookies } from 'next/headers';
 import type { Metadata } from 'next';
 import { immich, type ImmichAsset } from '@/lib/immich';
 import { notFound } from 'next/navigation';
-import type { PhotoItem } from './PhotoGrid';
-import {
-  imageUrl,
-  exifUrl,
-  videoUrl,
-  assetPlaceholder,
-  assetCaption,
-  assetExifSummary,
-  downloadUrl,
-  archiveUrl,
-  assetAspectRatio,
-} from '@/lib/urls';
+import { toPhotoItems } from './photoItems';
+import { imageUrl, assetPlaceholder, archiveUrl } from '@/lib/urls';
+import { ogImageUrl } from '@/lib/ogImage';
 import { encodeAssetId, decodeAssetId } from '@/lib/tokens';
+import { encodeEmail } from '@/lib/emailObfuscation';
 import {
   buildCoverGridVars,
   getConfig,
@@ -52,6 +47,8 @@ import { mapBlockAssetIds } from '@/lib/journal';
 import { strictestPrecision, type LocationPrecision } from '@/lib/mapPrecision';
 import { resolveEssayFile, generatedEssayCaption } from '@/lib/essaySource';
 import { getServerDictionary } from '@/lib/i18n/server';
+import { contentPageMetadata, renderContentPage } from './contentPage';
+import { loadAlbumBlocks } from './essayPayload';
 
 // Render at request time — requires live Immich connection
 export const dynamic = 'force-dynamic';
@@ -75,13 +72,32 @@ async function isLocked(key: string, type: 'subpage' | 'album'): Promise<boolean
   return !isAuthenticated(key, getCookie, type);
 }
 
+/**
+ * Metadata for a path that names nothing this site publishes. The title is
+ * the dictionary's, never the requested slug: generateMetadata runs for any
+ * URL a visitor types, and echoing it would put their text in the `<title>`
+ * and, through a signed share card, in an image served from this domain.
+ * Leaving `openGraph` out keeps the root layout's site card. `robots: null`
+ * drops the layout's `index, follow`, which would otherwise contradict the
+ * `noindex` Next adds to every not-found response.
+ */
+function notFoundMetadata(): Metadata {
+  return { title: getServerDictionary().error.notFoundTitle, robots: null };
+}
+
+/** Metadata for a path behind a password this request has not given. */
+function lockedMetadata(): Metadata {
+  return { title: getServerDictionary().password.protectedPage, robots: { index: false } };
+}
+
 export async function generateMetadata({ params, searchParams }: PathPageProps): Promise<Metadata> {
   // Next hands catch-all segments over percent-encoded, so a non-ASCII slug
   // ("/家族相册") would never match a stored one. Decode once, here, and every
   // comparison downstream works on the same form (#522).
   const { path: rawPath } = await params;
   const path = rawPath?.map(normalizeSlug);
-  if (!path || path.length === 0) return {};
+  // Deeper paths are a 404 (see the page below); they name nothing to describe.
+  if (!path || path.length === 0 || path.length > 2) return notFoundMetadata();
 
   // A shared photo link's whole point is that it reaches the server — unlike
   // the #photo-N hash it replaces, a `photo` query param is visible here, so
@@ -92,45 +108,51 @@ export async function generateMetadata({ params, searchParams }: PathPageProps):
   const photoAssetId = photoToken ? decodeAssetId(photoToken) : null;
   let photoAsset: ImmichAsset | undefined;
 
+  // Each branch follows the page body's order of gates and 404s, and takes
+  // the title only from site-authored text (an album or subpage name). A
+  // branch that finds nothing, or finds it locked, returns early, so the
+  // requested slug never becomes a title or share-card text.
   const slug = path[0];
-  let title = slug;
+  let title: string;
   let subtitle = '';
   let description: string | undefined = undefined;
+  const photoCount = (assets: ImmichAsset[]) =>
+    getServerDictionary().common.photos(
+      assets.filter((a) => a.type === 'IMAGE' || a.type === 'VIDEO').length,
+    );
+
   if (path.length === 1 && immich.isSubpageSlug(slug)) {
-    const subpageLocked = await isLocked(slug, 'subpage');
+    if (await isLocked(slug, 'subpage')) return lockedMetadata();
     const result = await immich.getSubpageAlbums(slug);
-    if (result) {
-      if (!subpageLocked && result.subpage.subtitle) {
-        description = result.subpage.subtitle;
-      }
-      if (result.albums.length === 1) {
-        const album = await immich.getAlbumBySlug(result.albums[0].slug, slug);
-        if (album && !subpageLocked && !(await isLocked(album.id, 'album'))) {
-          title = album.albumName;
-          const count = album.assets.filter((a) => a.type === 'IMAGE' || a.type === 'VIDEO').length;
-          subtitle = `${count} photo${count === 1 ? '' : 's'}`;
-          if (photoAssetId) photoAsset = album.assets.find((a) => a.id === photoAssetId);
-        }
-      } else if (!subpageLocked) {
-        title = result.subpage.title || result.subpage.name;
-      }
+    if (!result || result.albums.length === 0) return notFoundMetadata();
+    if (result.subpage.subtitle) description = result.subpage.subtitle;
+    if (result.albums.length === 1) {
+      const album = await immich.getAlbumBySlug(result.albums[0].slug, slug);
+      if (!album) return notFoundMetadata();
+      if (await isLocked(album.id, 'album')) return lockedMetadata();
+      title = album.albumName;
+      subtitle = photoCount(album.assets);
+      if (photoAssetId) photoAsset = album.assets.find((a) => a.id === photoAssetId);
+    } else {
+      title = result.subpage.title || result.subpage.name;
     }
   } else if (path.length === 2) {
+    if (await isLocked(slug, 'subpage')) return lockedMetadata();
     const album = await immich.getAlbumBySlug(path[1], slug);
-    if (album && !(await isLocked(slug, 'subpage')) && !(await isLocked(album.id, 'album'))) {
-      title = album.albumName;
-      const count = album.assets.filter((a) => a.type === 'IMAGE' || a.type === 'VIDEO').length;
-      subtitle = `${count} photo${count === 1 ? '' : 's'}`;
-      if (photoAssetId) photoAsset = album.assets.find((a) => a.id === photoAssetId);
-    }
+    if (!album) return notFoundMetadata();
+    if (await isLocked(album.id, 'album')) return lockedMetadata();
+    title = album.albumName;
+    subtitle = photoCount(album.assets);
+    if (photoAssetId) photoAsset = album.assets.find((a) => a.id === photoAssetId);
   } else {
+    const pageMeta = await contentPageMetadata(slug);
+    if (pageMeta) return pageMeta;
     const album = await immich.getAlbumBySlug(slug);
-    if (album && !(await isLocked(album.id, 'album'))) {
-      title = album.albumName;
-      const count = album.assets.filter((a) => a.type === 'IMAGE' || a.type === 'VIDEO').length;
-      subtitle = `${count} photo${count === 1 ? '' : 's'}`;
-      if (photoAssetId) photoAsset = album.assets.find((a) => a.id === photoAssetId);
-    }
+    if (!album) return notFoundMetadata();
+    if (await isLocked(album.id, 'album')) return lockedMetadata();
+    title = album.albumName;
+    subtitle = photoCount(album.assets);
+    if (photoAssetId) photoAsset = album.assets.find((a) => a.id === photoAssetId);
   }
 
   // The title stays the album's — it's still the context a reader wants —
@@ -140,9 +162,7 @@ export async function generateMetadata({ params, searchParams }: PathPageProps):
     photoAsset?.exifInfo?.description?.trim() ||
     description ||
     (subtitle ? `${title} — ${subtitle}` : undefined);
-  const ogImage = photoAsset
-    ? imageUrl(photoAsset.id, 'preview')
-    : `/api/og?title=${encodeURIComponent(title)}${subtitle ? `&subtitle=${encodeURIComponent(subtitle)}` : ''}`;
+  const ogImage = photoAsset ? imageUrl(photoAsset.id, 'preview') : ogImageUrl(title, subtitle);
 
   return {
     title,
@@ -159,44 +179,6 @@ export async function generateMetadata({ params, searchParams }: PathPageProps):
       images: [ogImage],
     },
   };
-}
-
-/** Map Immich assets to PhotoItem props for the grid/lightbox. */
-/**
- * `showExif` covers the hover overlay only, and that overlay carries camera,
- * lens and focal length — so it follows the `camera` group, not the panel.
- *
- * `showCaption` follows the `caption` group and decides whether the Immich
- * description becomes alt text; see `assetCaption`.
- */
-function toPhotoItems(
-  assets: ImmichAsset[],
-  showExif: boolean,
-  showCaption: boolean,
-  /** The album offering downloads, or undefined when it does not. */
-  downloadAlbumId?: string,
-): PhotoItem[] {
-  return assets
-    .filter((a) => a.type === 'IMAGE' || a.type === 'VIDEO')
-    .map((a) => {
-      const ph = assetPlaceholder(a);
-      const exif = showExif && a.type === 'IMAGE' ? assetExifSummary(a) : undefined;
-      const caption = assetCaption(a, showCaption);
-      const isVideo = a.type === 'VIDEO';
-      return {
-        id: encodeAssetId(a.id),
-        type: isVideo ? 'video' : 'image',
-        thumbUrl: imageUrl(a.id, 'preview'),
-        previewUrl: imageUrl(a.id, 'preview'),
-        ...(isVideo ? { videoUrl: videoUrl(a.id) } : {}),
-        exifUrl: exifUrl(a.id),
-        ...(ph ? { blurDataURL: ph.blurDataURL, dominantColor: ph.dominantColor } : {}),
-        ...(exif ?? {}),
-        ...(caption ? { caption } : {}),
-        ...(downloadAlbumId ? { downloadUrl: downloadUrl(downloadAlbumId, a.id) } : {}),
-        aspectRatio: assetAspectRatio(a),
-      };
-    });
 }
 
 /**
@@ -242,7 +224,8 @@ async function gateIfProtected(
   let title = titleOverride || key;
   if (!titleOverride && type === 'subpage') {
     const subpageData = await immich.getSubpageAlbums(key);
-    title = subpageData?.subpage.name ?? key;
+    const sp = subpageData?.subpage;
+    title = sp ? sp.title || sp.name : key;
   }
 
   return <PasswordGate slug={key} title={title} type={type} />;
@@ -279,6 +262,12 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
     (sParams.fresh === '1' || sParams.preview === 'true') && (await isAdminAuthenticated());
 
   const config = getConfig();
+
+  // The proofing dialog's "email to photographer" needs a recipient: the
+  // configured `proofing.email`, else the footer contact email (#736). Encoded
+  // here so the plain address stays out of the HTML and the RSC payload, like
+  // every other address the site renders.
+  const encodedMailto = config.proofing.email ? encodeEmail(config.proofing.email) : undefined;
 
   // Build grid CSS custom properties, optionally merging subpage overrides
   const buildGridStyle = (overrides?: Partial<GridConfig>): React.CSSProperties => {
@@ -322,7 +311,10 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
     return { ...spGrid, ...albumGrid };
   };
 
-  if (!path || path.length === 0) {
+  // One segment or two: nothing on this site lives deeper. A third segment
+  // used to fall through to the one-segment branch below, which reads only
+  // `path[0]`, so `/travel/iceland/anything` rendered the Travel subpage.
+  if (!path || path.length === 0 || path.length > 2) {
     notFound();
   }
 
@@ -351,7 +343,9 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
     // Look up subpage config for grid overrides and back link
     const subpageData = await immich.getSubpageAlbums(subpageSlug, forceFresh);
     const spGrid = subpageData?.subpage.grid;
-    const subpageName = subpageData?.subpage.name ?? subpageSlug;
+    const subpageName = subpageData
+      ? subpageData.subpage.title || subpageData.subpage.name
+      : subpageSlug;
 
     const images = toPhotoItems(
       album.assets,
@@ -385,6 +379,7 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
         showGear={config.exif.camera}
         proofing={proofingFor(subpageData?.subpage)}
         allowMailto={config.proofing.allowMailto}
+        encodedMailto={encodedMailto}
         downloadArchiveUrl={config.albumDownloads[album.id] ? archiveUrl(album.id) : undefined}
         {...heroData}
       />
@@ -435,7 +430,15 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
           getCookie: (name) => cookieStore.get(name)?.value,
         });
         if (file.status === 'locked') {
-          return <PasswordGate slug={result.subpage.essayFile} title={file.title} type="journal" />;
+          // The subpage's own title, which the nav already shows — not the
+          // borrowed entry's, which the journal index hides while it is locked.
+          return (
+            <PasswordGate
+              slug={result.subpage.essayFile}
+              title={result.subpage.title || result.subpage.name}
+              type="journal"
+            />
+          );
         }
         if (file.status === 'open') essayParsed = file.parsed;
       }
@@ -453,16 +456,10 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
       // does, from a raw fetch, and add those photos to the page's assets.
       // Their ids are encoded here because this path hands EssayView tokens.
       if (essayParsed?.blocks.some((b) => b.type === 'album')) {
-        const byAlbum = new Map<string, typeof allAssets>();
-        for (const b of essayParsed.blocks) {
-          if (b.type !== 'album' || !b.albumId || byAlbum.has(b.albumId)) continue;
-          try {
-            byAlbum.set(b.albumId, await immich.getAlbumAssetsRaw(b.albumId));
-          } catch (error) {
-            // eslint-disable-next-line no-console
-            console.warn(`[essay] ${slug}: album ${b.albumId} could not be loaded:`, error);
-          }
-        }
+        const byAlbum = await loadAlbumBlocks(essayParsed.blocks, (albumId, error) => {
+          // eslint-disable-next-line no-console
+          console.warn(`[essay] ${slug}: album ${albumId} could not be loaded:`, error);
+        });
         const expanded = expandAlbumBlocks(
           essayParsed.blocks,
           (id) => byAlbum.get(id),
@@ -551,6 +548,7 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
           watermark={config.watermark}
           proofing={essayProofing}
           allowMailto={config.proofing.allowMailto}
+          encodedMailto={encodedMailto}
         />
       );
     }
@@ -599,6 +597,7 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
           showGear={config.exif.camera}
           proofing={proofingFor(result.subpage)}
           allowMailto={config.proofing.allowMailto}
+          encodedMailto={encodedMailto}
           downloadArchiveUrl={config.albumDownloads[album.id] ? archiveUrl(album.id) : undefined}
           {...heroData}
         />
@@ -653,10 +652,20 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
         gridStyle={buildCoverGridStyle(result.subpage.coverGrid)}
         {...(subpageIndex >= 0 ? { index: subpageIndex + 1 } : {})}
         {...(nextSubpage
-          ? { nextSubpage: { slug: nextSubpage.slug, name: nextSubpage.name } }
+          ? {
+              nextSubpage: { slug: nextSubpage.slug, name: nextSubpage.title || nextSubpage.name },
+            }
           : {})}
       />
     );
+  }
+
+  // A content page (#722). The admin refuses a page slug that collides with a
+  // subpage or an album, so the order here only matters for a hand-edited file.
+  if (path.length === 1) {
+    const page = await renderContentPage(slug);
+    if (page === 'not-found') notFound();
+    if (page) return page;
   }
 
   // Otherwise treat as a standalone album slug
@@ -701,6 +710,7 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
       showGear={config.exif.camera}
       proofing={proofingFor()}
       allowMailto={config.proofing.allowMailto}
+      encodedMailto={encodedMailto}
       downloadArchiveUrl={config.albumDownloads[album.id] ? archiveUrl(album.id) : undefined}
       {...heroData}
     />

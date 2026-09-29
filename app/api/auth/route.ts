@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticate, isHttpsRequest, isProtected, type ProtectedType } from '@/lib/auth';
+import { authenticate, isHttpsRequest, type ProtectedType } from '@/lib/auth';
 import { checkRateLimit, getClientIp, retryAfterSeconds } from '@/lib/rate-limit';
 
 /** Tight limit for auth attempts — 10 per minute per IP. */
@@ -49,28 +49,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid password format or length' }, { status: 400 });
     }
 
-    const TYPES: ProtectedType[] = ['subpage', 'album', 'journal', 'site'];
+    const TYPES: ProtectedType[] = ['subpage', 'album', 'journal', 'page', 'site'];
     if (!TYPES.includes(type)) {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
     }
 
-    if (!isProtected(slug, type)) {
-      const typeLabel =
-        type === 'journal'
-          ? 'Journal entry'
-          : type === 'subpage'
-            ? 'Subpage'
-            : type === 'site'
-              ? 'Site'
-              : 'Album';
-      return NextResponse.json(
-        {
-          error: `${typeLabel} is not password-protected`,
-        },
-        { status: 400 },
-      );
-    }
-
+    // A key with no password (or none at all) answers exactly like a wrong
+    // password: `authenticate()` returns null for both. A distinct "not
+    // password-protected" reply told anyone probing slugs which ones hold a
+    // locked entry — including drafts and offline subpages, whose pages answer
+    // 404 and so give nothing away themselves.
     const setCookie = await authenticate(slug, password, type, isHttpsRequest(request));
     if (!setCookie) {
       return NextResponse.json({ error: 'Invalid password' }, { status: 401 });

@@ -19,6 +19,7 @@ import { accentForMode, onAccent } from '@/lib/config/theme';
 import { isAdminPath } from '@/lib/admin/paths';
 import { isInstallPath } from '@/lib/install';
 import { isSiteLocked, isSiteUnlocked } from '@/lib/auth';
+import { ogImageUrl } from '@/lib/ogImage';
 // DevToolbarLoader is a Client Component (ssr: false is only allowed there)
 import { DevToolbarLoader } from '@/components/DevToolbarLoader';
 import AssetProtection from '@/components/AssetProtection';
@@ -67,13 +68,13 @@ export async function generateMetadata(): Promise<Metadata> {
       title: siteTitle,
       description: siteDescription,
       type: 'website',
-      images: [`/api/og?title=${encodeURIComponent(siteTitle)}`],
+      images: [ogImageUrl(siteTitle)],
     },
     twitter: {
       card: 'summary_large_image',
       title: siteTitle,
       description: siteDescription,
-      images: [`/api/og?title=${encodeURIComponent(siteTitle)}`],
+      images: [ogImageUrl(siteTitle)],
     },
   };
 }
@@ -174,7 +175,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 {t.nav.skipToContent}
               </a>
               <header className="header">
-                <nav className="header__nav">
+                <nav className="header__nav" aria-label={t.nav.mainNavAria}>
                   {/* Brand wordmark — presets that show it pair it with the dot. */}
                   <span className="header__wordmark" aria-hidden="true">
                     {config.siteTitle}
@@ -182,8 +183,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <MobileNav>
                     <NavLink href="/">{t.nav.home}</NavLink>
                     <SubpageNav />
-                    {config.aboutEnabled && <NavLink href="/about">{t.nav.about}</NavLink>}
-                    {config.map && <NavLink href="/map">{t.nav.map}</NavLink>}
                   </MobileNav>
                   <ThemeToggle />
                 </nav>

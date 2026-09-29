@@ -19,6 +19,8 @@ export const de: Dictionary = {
     map: 'Karte',
     journal: 'Journal',
     skipToContent: 'Zum Inhalt springen',
+    mainNavAria: 'Hauptnavigation',
+    heroNavAria: 'Bereiche',
     openMenu: 'Menü öffnen',
     closeMenu: 'Menü schließen',
   },
@@ -44,12 +46,15 @@ export const de: Dictionary = {
     nextEntryAria: (title: string) => `Nächster Beitrag: ${title}`,
     entryNavAria: 'Journal-Navigation',
     loadingGallery: 'Galerie wird geladen',
+    gallery: 'Galerie',
     loadingPhotos: 'Fotos werden geladen',
     downloadAlbum: 'Album herunterladen',
   },
 
   home: {
     enter: 'Eintreten',
+    pauseSlideshow: 'Diashow anhalten',
+    playSlideshow: 'Diashow abspielen',
   },
 
   error: {
@@ -58,8 +63,6 @@ export const de: Dictionary = {
     errorTitle: 'Etwas ist schiefgelaufen',
     errorText:
       'Diese Seite konnte gerade nicht geladen werden. Das ist meist vorübergehend — bitte gleich noch einmal versuchen.',
-    siteErrorText:
-      'Diese Website konnte gerade nicht geladen werden. Das ist meist vorübergehend — bitte gleich noch einmal versuchen.',
     tryAgain: 'Erneut versuchen',
     reference: (digest: string) => `Referenz: ${digest}`,
   },
@@ -71,6 +74,7 @@ export const de: Dictionary = {
     immichUnavailable:
       'Die Fotobibliothek ist gerade nicht erreichbar. Bitte gleich noch einmal versuchen.',
     back: 'Zurück zur Galerie',
+    limitReached: 'Das Download-Limit für diesen Link ist erreicht.',
   },
 
   theme: {
@@ -82,11 +86,18 @@ export const de: Dictionary = {
   password: {
     subtitle: 'Diese Galerie ist passwortgeschützt.',
     siteSubtitle: 'Diese Website ist passwortgeschützt.',
+    pageSubtitle: 'Diese Seite ist passwortgeschützt.',
+    journalSubtitle: 'Dieser Journal-Eintrag ist passwortgeschützt.',
+    protectedPage: 'Geschützte Seite',
     placeholder: 'Passwort eingeben',
     submit: 'Öffnen',
     verifying: 'Wird geprüft…',
     incorrect: 'Falsches Passwort. Bitte erneut versuchen.',
     failed: 'Passwort konnte nicht geprüft werden. Bitte später erneut versuchen.',
+    tooManyAttempts: (seconds: number | null) =>
+      seconds
+        ? `Zu viele Versuche – bitte in ${seconds} ${seconds === 1 ? 'Sekunde' : 'Sekunden'} erneut versuchen.`
+        : 'Zu viele Versuche – bitte später erneut versuchen.',
   },
 
   about: {
@@ -104,6 +115,9 @@ export const de: Dictionary = {
     loading: 'Karte wird geladen…',
     loadFailed: (status: number) => `Kartendaten konnten nicht geladen werden (${status})`,
     initFailed: 'Karte konnte nicht initialisiert werden',
+    zoomIn: 'Vergrößern',
+    zoomOut: 'Verkleinern',
+    leafletTitle: 'Eine JavaScript-Bibliothek für interaktive Karten',
   },
 
   subpage: {
@@ -130,6 +144,7 @@ export const de: Dictionary = {
 
   lightbox: {
     viewer: 'Bildansicht',
+    position: (n: number, total: number) => `Foto ${n} von ${total}`,
     openPhoto: (n: number) => `Foto ${n} ansehen`,
     close: 'Schließen',
     closeTitle: 'Schließen (Esc)',
@@ -164,10 +179,10 @@ export const de: Dictionary = {
     downloadTitle: 'Originaldatei herunterladen (d)',
     downloadShort: 'Original',
     shortcutDownload: 'Original herunterladen',
-    shortcutSlideshow: 'Diaschau',
-    shortcutSlideshowRunning: (seconds: number) => `Diaschau — alle ${seconds}s`,
-    slideshowStopped: 'Diaschau angehalten',
-    slideshowRunning: (seconds: number) => `Diaschau läuft, wechselt alle ${seconds} Sekunden`,
+    shortcutSlideshow: 'Diashow',
+    shortcutSlideshowRunning: (seconds: number) => `Diashow — alle ${seconds}s`,
+    slideshowStopped: 'Diashow angehalten',
+    slideshowRunning: (seconds: number) => `Diashow läuft, wechselt alle ${seconds} Sekunden`,
     shortcutCopyLink: 'Link zum Foto kopieren',
     shortcutList: 'Diese Liste',
     shortcutClose: 'Ansicht schließen',
@@ -181,6 +196,7 @@ export const de: Dictionary = {
     saved: 'Gemerkt',
     favorite: 'Merken',
     showAll: 'Alle anzeigen',
+    filterEmpty: 'Keine Fotos ausgewählt.',
     selected: (n: number) => `❤️ ${n} ausgewählt`,
     shareExport: 'Teilen & Export',
     modalTitle: (n: number) => `❤️ Auswahl (${n})`,
@@ -200,9 +216,34 @@ export const de: Dictionary = {
     listEmpty: (albumName: string) => `${albumName}: Keine Fotos ausgewählt.`,
     listSummary: (albumName: string, count: number, indices: string) =>
       `${albumName} — Ausgewählte Fotos (${count}): ${indices}`,
-    mailSubject: (n: number) => `Fotoauswahl (${n} Fotos)`,
+    mailSubject: (n: number) => `Fotoauswahl (${plural(n, 'Foto', 'Fotos')})`,
     mailBody: (list: string, url: string) =>
       `Hallo,\n\nhier ist meine Fotoauswahl:\n\n${list}\n\nLink zur Auswahl: ${url}\n\nViele Grüße,`,
+  },
+
+  proofSession: {
+    greeting: (name: string) => `Auswahl für ${name}`,
+    intro:
+      'Markiere die gewünschten Fotos mit dem Herz. Deine Auswahl wird laufend gespeichert — du kannst mit diesem Link jederzeit zurückkommen.',
+    saving: 'Wird gespeichert…',
+    saved: 'Auswahl gespeichert',
+    saveFailed:
+      'Deine Auswahl konnte nicht gespeichert werden. Prüfe die Verbindung und versuche es erneut.',
+    review: 'Prüfen & absenden',
+    modalTitle: (n: number) => `Deine Auswahl (${n})`,
+    empty: 'Noch keine Fotos ausgewählt.',
+    submit: 'Auswahl absenden',
+    submitting: 'Wird gesendet…',
+    confirmSubmit: (n: number) =>
+      `${plural(n, 'Foto', 'Fotos')} absenden? Danach lässt sich die Auswahl nicht mehr ändern.`,
+    submitted: 'Danke — deine Auswahl wurde abgeschickt.',
+    locked: 'Diese Auswahl wurde abgeschickt und kann nicht mehr geändert werden.',
+    validUntil: (date: string) => `Dieser Link ist gültig bis ${date}.`,
+    expiredTitle: 'Dieser Link ist abgelaufen',
+    expiredText: 'Bitte frag deinen Fotografen nach einem neuen Link.',
+    downloadSelection: 'Auswahl herunterladen (.zip)',
+    downloadAll: 'Alle Fotos herunterladen (.zip)',
+    downloadsLeft: (n: number) => `Noch ${plural(n, 'Download', 'Downloads')}`,
   },
 
   legal: {

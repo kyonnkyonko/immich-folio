@@ -5,6 +5,7 @@ import { useProofing } from './ProofingContext';
 import { IconCheck, IconCopy, IconLink } from './Icons';
 import { useDictionary } from './I18nProvider';
 import { useModalDialog } from '@/hooks/useModalDialog';
+import { decodeEmail } from '@/lib/emailObfuscation';
 
 export function ProofingModal() {
   const t = useDictionary();
@@ -27,21 +28,27 @@ export function ProofingModal() {
   if (!proofing || !proofing.isModalOpen) return null;
 
   const {
-    favorites,
     setIsModalOpen,
     getProofingUrl,
     getFormattedList,
     getSelectedTokens,
     clearFavorites,
     allowMailto,
+    encodedMailto,
     downloadArchiveUrl,
   } = proofing;
 
-  // What the archive would actually receive. Gating on this rather than on
-  // `favorites.size` means a favourite left over from another album (they share
-  // the provider's storage key when no `albumName` is passed) can never light up
-  // a button that would post an empty selection and 404.
+  // What the archive would actually receive, and the only count shown here.
+  // `favorites.size` also counts a favourite left over from another album (they
+  // share a storage key when their names slug alike) or a photo since removed
+  // from this one, so it would light up a button that posts an empty selection
+  // and 404s, and put the wrong number in the title and the email subject.
   const selectedCount = getSelectedTokens().length;
+
+  // Decoded in the browser only: the address never travels in the clear. The
+  // email button is hidden without a recipient, so a mailto is never built with
+  // an empty To: — which opened a compose that went nowhere (#736).
+  const mailtoRecipient = encodedMailto ? decodeEmail(encodedMailto) : '';
 
   /** Copy to the clipboard, or show the text to copy by hand where it is unavailable. */
   const copy = (kind: 'link' | 'list', text: string) => {
@@ -64,9 +71,12 @@ export function ProofingModal() {
   const handleCopyList = () => copy('list', getFormattedList());
 
   const handleMailto = () => {
-    const subject = encodeURIComponent(t.proofing.mailSubject(favorites.size));
+    const subject = encodeURIComponent(t.proofing.mailSubject(getSelectedTokens().length));
     const body = encodeURIComponent(t.proofing.mailBody(getFormattedList(), getProofingUrl()));
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    // Percent-encode the address, keeping '@' readable, so a value from the
+    // settings cannot smuggle its own `?bcc=`/`&…` header fields into the draft.
+    const to = encodeURIComponent(mailtoRecipient).replace(/%40/g, '@');
+    window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
   };
 
   const handleDownloadSelection = () => {
@@ -143,7 +153,7 @@ export function ProofingModal() {
           }}
         >
           <h3 id="proofing-modal-title" style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>
-            {t.proofing.modalTitle(favorites.size)}
+            {t.proofing.modalTitle(selectedCount)}
           </h3>
           <button
             type="button"
@@ -164,7 +174,7 @@ export function ProofingModal() {
         </div>
 
         <p style={{ fontSize: '0.9rem', opacity: 0.8, marginBottom: '1rem' }}>
-          {t.proofing.intro(favorites.size)}
+          {t.proofing.intro(selectedCount)}
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -219,13 +229,21 @@ export function ProofingModal() {
               gap: '0.5rem',
               padding: '0.75rem 1rem',
               borderRadius: 'var(--radius-sm, 6px)',
+              // Secondary matches the other buttons below: a white-alpha fill
+              // and border vanished on the light theme's white card. Primary
+              // text takes --on-accent, which the layout computes from the
+              // accent; a fixed white was invisible on minimal's white accent.
               ...(downloadArchiveUrl
                 ? {
-                    background: 'rgba(255,255,255,0.1)',
+                    background: 'var(--bg-card-hover)',
                     color: 'inherit',
-                    border: '1px solid rgba(255,255,255,0.15)',
+                    border: '1px solid var(--border-subtle)',
                   }
-                : { background: 'var(--accent, #e60012)', color: '#fff', border: 'none' }),
+                : {
+                    background: 'var(--accent, #e60012)',
+                    color: 'var(--on-accent, #fff)',
+                    border: 'none',
+                  }),
               fontWeight: 500,
               cursor: 'pointer',
             }}
@@ -296,7 +314,7 @@ export function ProofingModal() {
             </div>
           )}
 
-          {allowMailto && (
+          {allowMailto && mailtoRecipient && (
             <button
               type="button"
               onClick={handleMailto}
@@ -330,10 +348,12 @@ export function ProofingModal() {
               marginTop: '0.5rem',
               background: 'none',
               border: 'none',
-              color: '#ff4d4f',
+              // Per-mode token, at full strength: the fixed red at 80% opacity it
+              // replaces measured 2.7:1 on the light card and under 4:1 on the
+              // dark ones.
+              color: 'var(--error)',
               fontSize: '0.85rem',
               cursor: 'pointer',
-              opacity: 0.8,
             }}
           >
             {t.proofing.clearSelection}

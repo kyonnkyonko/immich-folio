@@ -7,16 +7,20 @@
  * path through useAboutEditor().
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import SaveBar, { type SaveStatus } from './SaveBar';
 import { useUnsavedGuard } from './useUnsavedGuard';
 import { useDraft } from './useDraft';
+import { useLatest } from './useLatest';
 import DraftNotice from './DraftNotice';
 import { useContentRestored } from './contentRestored';
 import { reportIfSessionExpired } from './sessionExpiry';
+import { useVersionedSave } from './useVersionedSave';
 import type { Settings, SectionProps } from './settings/types';
+import type { EnvLocks } from '@/lib/admin/envLocks';
+import { validateSettingValues } from '@/lib/config/settingValues';
 import GeneralSection from './settings/GeneralSection';
 import ThemeSection from './settings/ThemeSection';
 import GridSection from './settings/GridSection';
@@ -65,6 +69,8 @@ export default function SettingsEditor() {
     effective: string | null;
     source: 'env' | 'settings' | 'none';
   } | null>(null);
+  /** Fields an environment variable overrides, path to variable name (#605). */
+  const [envLocks, setEnvLocks] = useState<EnvLocks>({});
   const [loading, setLoading] = useState(true);
   /**
    * Set when the settings could not be fetched. It blocks saving, because an
@@ -87,6 +93,11 @@ export default function SettingsEditor() {
   // holds the password as typed. A restored draft takes the password from the
   // server instead; a new one is typed again after a reload.
   const settingsDraft = useDraft<Settings>('settings', withoutSitePassword(settings), dirty);
+  /** The form as last rendered: tells a finished save whether editing went on meanwhile. */
+  const latestSettings = useLatest(settings);
+  /** settings.yaml as loaded, sent back on save so a change elsewhere is caught (#601). */
+  const versionRef = useRef<string | null>(null);
+  const versionedSave = useVersionedSave();
 
   useEffect(() => {
     loadSettings();
@@ -149,14 +160,16 @@ export default function SettingsEditor() {
             : `The server answered ${res.status}.`,
         );
       }
-      const { settings: data, siteUrl } = await res.json();
+      const { settings: data, siteUrl, envLocks: locks, version } = await res.json();
       const loaded: Settings = data || {};
+      versionRef.current = typeof version === 'string' ? version : null;
       setServerSettings(loaded);
       const restoredDraft = settingsDraft.load(JSON.stringify(withoutSitePassword(loaded)));
       const restored = restoredDraft && withSitePasswordOf(restoredDraft, loaded);
       setSettings(restored ?? loaded);
       setDirty(restored !== null);
       setSiteUrlInfo(siteUrl ?? null);
+      setEnvLocks(locks ?? {});
     } catch (err) {
       console.error('Failed to load settings:', err);
       setLoadError(err instanceof Error ? err.message : 'The settings could not be loaded.');
@@ -218,8 +231,9 @@ export default function SettingsEditor() {
     setSaving(true);
     setSaveStatus(null);
 
+    const sent = settings;
     // Clean up empty objects
-    const cleaned = JSON.parse(JSON.stringify(settings));
+    const cleaned = JSON.parse(JSON.stringify(sent));
     for (const key of Object.keys(cleaned)) {
       if (typeof cleaned[key] === 'object' && Object.keys(cleaned[key]).length === 0) {
         delete cleaned[key];
@@ -227,39 +241,56 @@ export default function SettingsEditor() {
     }
 
     try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: cleaned }),
-      });
+      const result = await versionedSave(
+        '/api/admin/settings',
+        { settings: cleaned },
+        versionRef,
+        'The settings file',
+      );
 
-      if (res.ok) {
-        const data = await res.json();
+      if (result.kind === 'reload') {
+        settingsDraft.discard();
+        await loadSettings();
+      } else if (result.kind === 'keep') {
+        setSaveStatus({ kind: 'error', message: 'Not saved — the settings changed elsewhere.' });
+      } else if (result.kind === 'saved') {
+        const data = result.data;
         // The site password is stored hashed (#690); show that, not the typed text.
         const stored: Settings =
           typeof data.sitePassword === 'string'
             ? { ...cleaned, sitePassword: data.sitePassword }
             : cleaned;
+        // Edited while the request was out: those edits are not saved yet, so
+        // they stay dirty, and a password retyped meanwhile is not replaced.
+        const editedMeanwhile = latestSettings.current !== sent;
         if (typeof data.sitePassword === 'string') {
-          setSettings((s) => ({ ...s, sitePassword: data.sitePassword }));
+          const hashed = data.sitePassword;
+          setSettings((s) =>
+            s.sitePassword === sent.sitePassword ? { ...s, sitePassword: hashed } : s,
+          );
         }
         setServerSettings(stored);
-        settingsDraft.saved(JSON.stringify(withoutSitePassword(stored)));
-        setDirty(false);
-        setSaveStatus({ kind: 'success', message: data.message || 'Saved!' });
+        settingsDraft.saved(JSON.stringify(withoutSitePassword(stored)), editedMeanwhile);
+        if (!editedMeanwhile) setDirty(false);
+        setSaveStatus({
+          kind: 'success',
+          message: typeof data.message === 'string' ? data.message : 'Saved!',
+        });
         router.refresh();
         setTimeout(() => setSaveStatus(null), 5000);
-      } else if (!reportIfSessionExpired(res)) {
-        const err = await res.json();
+      } else if (!reportIfSessionExpired(result.res)) {
+        const err = result.data ?? {};
         // A rejected save names the fields that caused it. Listing them beats
-        // "could not be saved" over a form with forty inputs; putting the
-        // message next to each input is the job of #600.
+        // "could not be saved" over a form with forty inputs; the value
+        // checks also stand next to their inputs (fieldErrors).
         const fields: string[] = Array.isArray(err.fields)
-          ? err.fields.map((f: { field?: string }) => f.field || 'settings')
+          ? err.fields.map((f: { field?: string; message?: string }) =>
+              f.message ? `${f.field || 'settings'}: ${f.message}` : f.field || 'settings',
+            )
           : [];
         setSaveStatus({
           kind: 'error',
-          message: `Error: ${err.error}${fields.length ? ` — ${fields.join(', ')}` : ''}`,
+          message: `Error: ${err.error ?? `HTTP ${result.res.status}`}${fields.length ? ` — ${fields.join(', ')}` : ''}`,
         });
       }
     } catch {
@@ -311,7 +342,10 @@ export default function SettingsEditor() {
   const saveBarStatus: SaveStatus =
     [saveStatus, about.status].find((st) => st?.kind === 'error') ?? saveStatus ?? about.status;
 
-  const props: SectionProps = { settings, update, updateMany };
+  const fieldErrors = Object.fromEntries(
+    validateSettingValues(settings).map((e) => [e.field, e.message]),
+  );
+  const props: SectionProps = { settings, update, updateMany, envLocks, fieldErrors };
 
   return (
     <div className="settings-editor">

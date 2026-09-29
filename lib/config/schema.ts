@@ -1,5 +1,6 @@
 import type { AlbumSortMode } from '../albumSort';
 import type { LocationPrecision } from '../mapPrecision';
+import type { NavEntry } from '../pages';
 
 export interface SubpageSectionConfig {
   title: string;
@@ -217,6 +218,11 @@ export interface AppConfig {
   albums: string[];
   standaloneAlbums: string[];
   subpages: SubpageConfig[];
+  /**
+   * The header menu in gallery.yaml order: every subpage (hidden and disabled
+   * ones included — the menu filters) and every `- page:` reference (#722).
+   */
+  nav: NavEntry[];
   siteTitle: string;
   siteSubtitle: string;
   lang: string;
@@ -264,6 +270,13 @@ export interface AppConfig {
   proofing: {
     enabled: boolean;
     allowMailto: boolean;
+    /**
+     * Effective "email to photographer" recipient: `proofing.email` from
+     * settings when set, otherwise the footer contact email. Undefined means
+     * neither is configured, and the proofing dialog hides the email action
+     * rather than opening a compose with an empty To: (#736).
+     */
+    email?: string;
   };
   aboutEnabled: boolean;
   albumOverrides: Record<string, string>;
@@ -352,43 +365,63 @@ export interface AlbumEntryObject {
   location?: string;
 }
 
+/**
+ * A content page placed in the menu (#722): `- page: <slug>` among the
+ * subpages. The page itself lives in content/pages/<slug>.md.
+ */
+export interface PageRefYaml {
+  page: string;
+}
+
+/** Whether a raw `subpages:` list entry is a page reference rather than a subpage. */
+export function isPageRef(entry: unknown): entry is PageRefYaml {
+  return (
+    typeof entry === 'object' &&
+    entry !== null &&
+    'page' in entry &&
+    typeof (entry as { page: unknown }).page === 'string'
+  );
+}
+
 export interface GalleryYaml {
   hero?: string | string[];
   albums?: Array<string | Record<string, string | AlbumEntryObject>>;
   subpages?:
     | Record<string, string[] | Array<string | Record<string, string>>>
-    | Array<{
-        name: string;
-        title?: string;
-        subtitle?: string;
-        albums?: Array<string | Record<string, string | AlbumEntryObject>>;
-        sections?: Array<{
-          title: string;
-          description?: string;
-          albums: Array<string | Record<string, string | AlbumEntryObject>>;
-        }>;
-        password?: string;
-        proofing?: boolean;
-        essayFile?: string;
-        essayText?: string;
-        enabled?: boolean;
-        hidden?: boolean;
-        /** Map precision inherited by every album here (#469). */
-        location?: string;
-        grid?: {
-          columns?: number;
-          gap?: number;
-          aspectRatio?: string;
-          layout?: string;
-        };
-        /** Album covers only; falls back to `grid` when unset (#523). */
-        coverGrid?: {
-          columns?: number;
-          gap?: number;
-          aspectRatio?: string;
-          layout?: string;
-        };
-      }>;
+    | Array<GallerySubpageYaml | PageRefYaml>;
+}
+
+export interface GallerySubpageYaml {
+  name: string;
+  title?: string;
+  subtitle?: string;
+  albums?: Array<string | Record<string, string | AlbumEntryObject>>;
+  sections?: Array<{
+    title: string;
+    description?: string;
+    albums: Array<string | Record<string, string | AlbumEntryObject>>;
+  }>;
+  password?: string;
+  proofing?: boolean;
+  essayFile?: string;
+  essayText?: string;
+  enabled?: boolean;
+  hidden?: boolean;
+  /** Map precision inherited by every album here (#469). */
+  location?: string;
+  grid?: {
+    columns?: number;
+    gap?: number;
+    aspectRatio?: string;
+    layout?: string;
+  };
+  /** Album covers only; falls back to `grid` when unset (#523). */
+  coverGrid?: {
+    columns?: number;
+    gap?: number;
+    aspectRatio?: string;
+    layout?: string;
+  };
 }
 
 export interface SettingsYaml {
@@ -417,6 +450,8 @@ export interface SettingsYaml {
   proofing?: {
     enabled?: boolean;
     allowMailto?: boolean;
+    /** Overrides the footer contact email as the proofing recipient. */
+    email?: string;
   };
   theme?:
     | string
@@ -643,4 +678,45 @@ export function normalizeSlug(slug: string): string {
     // than throwing a 500 on a hand-mangled URL.
   }
   return decoded.normalize('NFC');
+}
+
+/**
+ * The albums the public site shows: the standalone ones and those of every
+ * subpage that is not offline. `albums` is the allowlist for loading an album
+ * and still holds the albums of a subpage taken offline with `enabled: false`
+ * (its configuration is kept), so it does not answer "is this published".
+ * Anything that lists albums or serves their photos outside a page route asks
+ * this instead.
+ */
+export function onlineAlbumIds(config: {
+  standaloneAlbums?: readonly string[];
+  subpages: ReadonlyArray<{ albumIds: readonly string[]; enabled?: boolean }>;
+}): Set<string> {
+  return new Set([
+    ...(config.standaloneAlbums ?? []),
+    ...config.subpages.filter((sp) => sp.enabled !== false).flatMap((sp) => sp.albumIds),
+  ]);
+}
+
+/** A subpage that appears in listings: online and not `hidden`. */
+export function isListedSubpage(sp: { enabled?: boolean; hidden?: boolean }): boolean {
+  return sp.enabled !== false && sp.hidden !== true;
+}
+
+/**
+ * The albums a public listing may name: the standalone ones and those of
+ * every subpage that is online and not `hidden`. Narrower than
+ * {@link onlineAlbumIds} — a hidden subpage is reachable by direct link only,
+ * so its photos are still served (publishedAssets asks `onlineAlbumIds`), but
+ * an overview such as the map must not advertise them. An album that a listed
+ * subpage or the standalone list also carries stays.
+ */
+export function listedAlbumIds(config: {
+  standaloneAlbums?: readonly string[];
+  subpages: ReadonlyArray<{ albumIds: readonly string[]; enabled?: boolean; hidden?: boolean }>;
+}): Set<string> {
+  return new Set([
+    ...(config.standaloneAlbums ?? []),
+    ...config.subpages.filter(isListedSubpage).flatMap((sp) => sp.albumIds),
+  ]);
 }

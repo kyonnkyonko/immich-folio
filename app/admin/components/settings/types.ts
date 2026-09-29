@@ -1,3 +1,5 @@
+import type { EnvLocks } from '@/lib/admin/envLocks';
+
 /**
  * Shared shape of the settings form (#554). The sections edit one object
  * that mirrors settings.yaml; SettingsEditor owns it and hands each section
@@ -76,6 +78,7 @@ export interface Settings {
   proofing?: {
     enabled?: boolean;
     allowMailto?: boolean;
+    email?: string;
   };
   watermark?: {
     enabled?: boolean;
@@ -92,4 +95,12 @@ export interface SectionProps {
   update: (path: string, value: unknown) => void;
   /** Set several paths in one state update. */
   updateMany: (entries: Record<string, unknown>) => void;
+  /** Fields an environment variable overrides; rendered locked (#605). */
+  envLocks?: EnvLocks;
+  /**
+   * Dotted path → message, for values the site would ignore (the save route
+   * rejects them). Checked as the form changes, so the message stands next to
+   * the input before a save is tried.
+   */
+  fieldErrors?: Record<string, string>;
 }

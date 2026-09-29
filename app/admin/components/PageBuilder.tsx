@@ -24,7 +24,16 @@ import SaveBar, { type SaveStatus } from './SaveBar';
 import AlbumDrawer from './page-builder/AlbumDrawer';
 import { SortableAlbumCard } from './page-builder/AlbumCard';
 import SubpageDrawer from './page-builder/SubpageDrawer';
-import { SortableHeroTile, SortableSubpageRow } from './page-builder/SortableTiles';
+import {
+  OffMenuDropZone,
+  SortableHeroTile,
+  SortablePageRow,
+  SortableSubpageRow,
+} from './page-builder/SortableTiles';
+import PagePanel from './page-builder/PagePanel';
+import { isValidSlug } from '@/lib/journal';
+import NewPageDialog from './page-builder/NewPageDialog';
+import type { PageSummary, SlugTakenBy } from '@/lib/pages';
 import { findAlbumAddress } from './page-builder/findAlbumAddress';
 import { parseGalleryYaml, serializeGallery, type GalleryState } from './page-builder/galleryYaml';
 import * as ops from './page-builder/galleryOps';
@@ -41,10 +50,21 @@ import {
 import { useScrollLock } from './useScrollLock';
 import { useUnsavedGuard } from './useUnsavedGuard';
 import { useDraft } from './useDraft';
+import { useLatest } from './useLatest';
+import { useVersionedSave } from './useVersionedSave';
+import type { GalleryVersionChange } from '@/lib/admin/pageRefs';
 import DraftNotice from './DraftNotice';
 import { reportIfSessionExpired } from './sessionExpiry';
 import { IconCamera, IconHome, IconPlus, IconSearch } from './Icons';
 import { useNotify } from './Notifications';
+
+/** Drop target id of the "Not in menu" group. */
+const OFF_MENU_ID = 'offmenu-zone';
+
+/** Sortable id of a menu row. Subpages keep their old `subpage-<index>` id. */
+function menuRowId(item: ops.MenuItem): string {
+  return item.kind === 'subpage' ? `subpage-${item.index}` : `page-${item.slug}`;
+}
 
 export default function PageBuilder() {
   const [gallery, setGallery] = useState<GalleryState>({ hero: [], albums: [], subpages: [] });
@@ -78,6 +98,21 @@ export default function PageBuilder() {
   );
   /** Album a `?album=` link pointed at, marked in its subpage sheet for a moment. */
   const [linkedAlbumId, setLinkedAlbumId] = useState<string | null>(null);
+
+  // ── Content pages (#722) ──
+  /** Every page file; the menu itself lives in `gallery.pageRefs`. */
+  const [pages, setPages] = useState<PageSummary[]>([]);
+  const [takenSlugs, setTakenSlugs] = useState<SlugTakenBy>({
+    subpages: [],
+    albums: [],
+    journal: [],
+  });
+  /** The page shown in the panel; exclusive with `expandedSubpage`. */
+  const [selectedPage, setSelectedPage] = useState<string | null>(null);
+  const [showNewPage, setShowNewPage] = useState(false);
+  const [creatingPage, setCreatingPage] = useState(false);
+  /** The edit panel beside (or, on narrow screens, below) the structure list. */
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Keep the builder still behind either drawer. One combined lock rather than
   // one per drawer: the album drawer opens from inside the subpage drawer, and
@@ -121,7 +156,12 @@ export default function PageBuilder() {
   // Unsaved edits survive leaving the builder — a tab link, back, Reload,
   // Logout (#592). `serverState` is what a discard goes back to.
   const draft = useDraft<GalleryState>('page-builder', gallery, dirty);
+  /** The tree as last rendered: tells a finished save whether editing went on meanwhile. */
+  const latestGallery = useLatest(gallery);
   const serverState = useRef<GalleryState | null>(null);
+  /** gallery.yaml as loaded, sent back on save so a change elsewhere is caught (#601). */
+  const versionRef = useRef<string | null>(null);
+  const versionedSave = useVersionedSave();
 
   // A subpage opened from a `?album=` link can hold dozens of albums: bring the
   // linked one into view, and let the mark fade after a moment. The mark itself
@@ -147,9 +187,10 @@ export default function PageBuilder() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [galleryRes, albumsRes] = await Promise.all([
+      const [galleryRes, albumsRes, pagesRes] = await Promise.all([
         fetch('/api/admin/gallery'),
         fetch('/api/admin/albums'),
+        fetch('/api/admin/pages'),
       ]);
 
       if (!galleryRes.ok) {
@@ -160,7 +201,8 @@ export default function PageBuilder() {
         );
       }
 
-      const { gallery: raw } = await galleryRes.json();
+      const { gallery: raw, version } = await galleryRes.json();
+      versionRef.current = typeof version === 'string' ? version : null;
       const parsed = parseGalleryYaml(raw);
       serverState.current = parsed;
       const restored = draft.load(JSON.stringify(parsed));
@@ -176,6 +218,15 @@ export default function PageBuilder() {
         const { albums } = await albumsRes.json();
         setImmichAlbums(albums);
       }
+
+      // Pages are survivable the same way: without the list the menu still
+      // shows their references, and saving keeps them.
+      if (pagesRes.ok) {
+        const data = (await pagesRes.json()) as { pages: PageSummary[]; taken: SlugTakenBy };
+        setPages(data.pages);
+        setTakenSlugs(data.taken);
+      }
+      openPageFromLink();
     } catch (err) {
       console.error('Failed to load admin data:', err);
       setLoadError(err instanceof Error ? err.message : 'The page structure could not be loaded.');
@@ -213,6 +264,21 @@ export default function PageBuilder() {
     }
   }
 
+  /** `?page=<slug>` selects a page — the page editor's back link uses it. One-shot. */
+  function openPageFromLink() {
+    const params = new URLSearchParams(window.location.search);
+    const slug = params.get('page');
+    if (slug === null) return;
+    params.delete('page');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''));
+    // The slug comes from the address bar and becomes the page's live link, so
+    // only a real page slug may select a page — `//host` would leave the site.
+    if (!isValidSlug(slug)) return;
+    setExpandedSubpage(null);
+    setSelectedPage(slug);
+  }
+
   function discardDraft() {
     draft.discard();
     if (serverState.current) setGallery(serverState.current);
@@ -240,17 +306,24 @@ export default function PageBuilder() {
     setSaving(true);
     setSaveStatus(null);
 
-    const yamlData = serializeGallery(gallery);
+    const sent = gallery;
+    const yamlData = serializeGallery(sent);
 
     try {
-      const res = await fetch('/api/admin/gallery', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gallery: yamlData }),
-      });
+      const result = await versionedSave(
+        '/api/admin/gallery',
+        { gallery: yamlData },
+        versionRef,
+        'The page structure (gallery.yaml)',
+      );
 
-      if (res.ok) {
-        const data = await res.json();
+      if (result.kind === 'reload') {
+        draft.discard();
+        await loadData();
+      } else if (result.kind === 'keep') {
+        setSaveStatus({ kind: 'error', message: 'Not saved — gallery.yaml changed elsewhere.' });
+      } else if (result.kind === 'saved') {
+        const data = result.data as { gallery?: unknown; message?: string };
         // Fingerprint what the next load will see, the way it will see it: the
         // file as written, read back through the same parser. The editor's own
         // state can differ in shape (an `undefined` here, a default there) and
@@ -262,15 +335,22 @@ export default function PageBuilder() {
         const written = (data.gallery ?? yamlData) as Record<string, unknown>;
         const asLoaded = parseGalleryYaml(JSON.parse(JSON.stringify(written)));
         serverState.current = asLoaded;
-        draft.saved(JSON.stringify(asLoaded));
-        // Show the hashes, so a new password reads "Protected" right away.
-        if (JSON.stringify(written) !== JSON.stringify(yamlData)) setGallery(asLoaded);
-        setDirty(false);
+        // Edited while the request was out: those edits are not saved yet, so
+        // they stay dirty and are not replaced by the file as written.
+        const editedMeanwhile = latestGallery.current !== sent;
+        draft.saved(JSON.stringify(asLoaded), editedMeanwhile);
+        if (!editedMeanwhile) {
+          // Show the hashes, so a new password reads "Protected" right away.
+          if (JSON.stringify(written) !== JSON.stringify(yamlData)) setGallery(asLoaded);
+          setDirty(false);
+        }
         setSaveStatus({ kind: 'success', message: data.message || 'Saved successfully!' });
         setTimeout(() => setSaveStatus(null), 5000);
-      } else if (!reportIfSessionExpired(res)) {
-        const err = await res.json();
-        setSaveStatus({ kind: 'error', message: `Error: ${err.error}` });
+      } else if (!reportIfSessionExpired(result.res)) {
+        setSaveStatus({
+          kind: 'error',
+          message: `Error: ${result.data?.error ?? `HTTP ${result.res.status}`}`,
+        });
       }
     } catch {
       setSaveStatus({ kind: 'error', message: 'Error: Failed to save' });
@@ -286,8 +366,8 @@ export default function PageBuilder() {
   }
 
   // ── Pickers ──────────────────────────────────────────────────
-  function handleHeroSelect(assetId: string) {
-    edit((g) => ops.addHero(g, assetId));
+  function handleHeroSelectMany(assetIds: string[]) {
+    edit((g) => ops.addHeroes(g, assetIds));
     setHeroPickerTarget(null);
   }
 
@@ -322,17 +402,158 @@ export default function PageBuilder() {
     }
   }
 
-  function handleSubpageDragEnd(event: DragEndEvent) {
+  /**
+   * The menu list holds subpages and pages in one order (#722). A page can
+   * also be dragged into or out of "Not in menu", which toggles its "Show in
+   * menu" switch.
+   */
+  function handleMenuDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const items = ops.menuItems(gallery);
+    const rowIndex = (id: string) => items.findIndex((item) => menuRowId(item) === id);
+    const overOffMenu = overId === OFF_MENU_ID || overId.startsWith('off-');
 
-    const oldIndex = gallery.subpages.findIndex((_, i) => `subpage-${i}` === active.id);
-    const newIndex = gallery.subpages.findIndex((_, i) => `subpage-${i}` === over.id);
-
-    if (oldIndex !== -1 && newIndex !== -1) {
-      edit((g) => ops.moveSubpage(g, oldIndex, newIndex));
-      setExpandedSubpage(ops.followMovedIndex(expandedSubpage, oldIndex, newIndex));
+    if (activeId.startsWith('off-')) {
+      if (overOffMenu) return;
+      const at = rowIndex(overId);
+      if (at === -1) return;
+      const slug = activeId.slice('off-'.length);
+      edit((g) => ops.setPageInMenu(g, slug, true, at));
+      return;
     }
+
+    const from = rowIndex(activeId);
+    if (from === -1) return;
+    if (overOffMenu) {
+      const item = items[from];
+      if (item.kind === 'page') edit((g) => ops.setPageInMenu(g, item.slug, false));
+      return;
+    }
+    const to = rowIndex(overId);
+    if (to === -1) return;
+    setExpandedSubpage(ops.followMenuMove(gallery, expandedSubpage, from, to));
+    edit((g) => ops.moveMenuItem(g, from, to));
+  }
+
+  // ── Content pages ────────────────────────────────────────────
+  function selectPage(slug: string) {
+    setExpandedSubpage(null);
+    setLinkedAlbumId(null);
+    setSelectedPage(slug);
+    revealPanel();
+  }
+
+  function selectSubpage(index: number) {
+    setSelectedPage(null);
+    setExpandedSubpage(index);
+    revealPanel();
+  }
+
+  function selectOverview(which: 'hero' | 'albums') {
+    setExpandedSubpage(null);
+    setSelectedPage(null);
+    setOverview(which);
+    revealPanel();
+  }
+
+  /**
+   * Below 1100px the panel stacks under the structure list, so on a phone a
+   * tapped row changed something a screen further down and looked like it
+   * did nothing. Scroll the panel up once it has rendered.
+   */
+  function revealPanel() {
+    if (!window.matchMedia?.('(max-width: 1100px)').matches) return;
+    requestAnimationFrame(() => {
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      panelRef.current?.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+    });
+  }
+
+  const togglePageMenu = (slug: string) =>
+    edit((g) => ops.setPageInMenu(g, slug, !ops.isPageInMenu(g, slug)));
+
+  /**
+   * gallery.yaml was changed on the server by a page rename or delete. The
+   * same change goes into the builder's state and into what it considers
+   * saved, so neither a pending edit nor the draft check trips over it.
+   */
+  function applyServerMenuChange(
+    op: (g: GalleryState) => GalleryState,
+    change?: GalleryVersionChange | null,
+  ) {
+    setGallery(op);
+    // Follow the rewrite only when it was the sole change since this editor
+    // loaded; otherwise the old version stays and the next save asks (#601).
+    if (change && versionRef.current === change.from) versionRef.current = change.to;
+    if (serverState.current) {
+      serverState.current = op(serverState.current);
+      draft.saved(JSON.stringify(serverState.current));
+    }
+  }
+
+  async function createPage(input: { title: string; slug: string; showInMenu: boolean }) {
+    setCreatingPage(true);
+    try {
+      const res = await fetch('/api/admin/pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: input.title, slug: input.slug }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        if (!reportIfSessionExpired(res))
+          notify('error', data?.error || 'Failed to create the page');
+        return;
+      }
+      const slug: string = data.page.slug;
+      setPages((prev) => [
+        ...prev.filter((p) => p.slug !== slug),
+        { slug, frontmatter: { title: input.title, draft: true } },
+      ]);
+      if (input.showInMenu) edit((g) => ops.setPageInMenu(g, slug, true));
+      setShowNewPage(false);
+      selectPage(slug);
+      notify(
+        'success',
+        input.showInMenu
+          ? 'Page created as a draft. Save Changes to put it in the menu.'
+          : 'Page created as a draft.',
+      );
+    } catch {
+      notify('error', 'Could not create the page. Check the connection and try again.');
+    } finally {
+      setCreatingPage(false);
+    }
+  }
+
+  function handlePageSaved(
+    oldSlug: string,
+    page: PageSummary,
+    menuRenamed: boolean,
+    galleryVersion?: GalleryVersionChange | null,
+  ) {
+    setPages((prev) => [...prev.filter((p) => p.slug !== oldSlug), page]);
+    if (page.slug !== oldSlug) {
+      const rename = (g: GalleryState) => ops.renamePageRef(g, oldSlug, page.slug);
+      if (menuRenamed) applyServerMenuChange(rename, galleryVersion);
+      else setGallery(rename);
+      setSelectedPage(page.slug);
+    }
+  }
+
+  function handlePageDeleted(
+    slug: string,
+    removedFromMenu: boolean,
+    galleryVersion?: GalleryVersionChange | null,
+  ) {
+    setPages((prev) => prev.filter((p) => p.slug !== slug));
+    const remove = (g: GalleryState) => ops.setPageInMenu(g, slug, false);
+    if (removedFromMenu) applyServerMenuChange(remove, galleryVersion);
+    else setGallery(remove);
+    setSelectedPage(null);
   }
 
   function handleSubpageAlbumDragEnd(spIndex: number) {
@@ -510,6 +731,16 @@ export default function PageBuilder() {
     );
   });
 
+  // The menu: subpages and pages in saved order (#722). Search filters it.
+  const pageBySlug = new Map(pages.map((p) => [p.slug, p]));
+  const pageTitle = (slug: string) => pageBySlug.get(slug)?.frontmatter.title || slug;
+  const query = searchQuery.toLowerCase();
+  const pageMatches = (slug: string) =>
+    !searchQuery || slug.includes(query) || pageTitle(slug).toLowerCase().includes(query);
+  const offMenuPages = pages
+    .filter((p) => !ops.isPageInMenu(gallery, p.slug) && pageMatches(p.slug))
+    .sort((a, b) => pageTitle(a.slug).localeCompare(pageTitle(b.slug)));
+
   // Filter subpages
   const filteredSubpages = gallery.subpages
     .map((sp, index) => ({ sp, index }))
@@ -537,6 +768,12 @@ export default function PageBuilder() {
 
       return hasMatchingAlbum;
     });
+  const shownSubpages = new Set(filteredSubpages.map(({ index }) => index));
+  const menuRows = ops
+    .menuItems(gallery)
+    .filter((item) =>
+      item.kind === 'subpage' ? shownSubpages.has(item.index) : pageMatches(item.slug),
+    );
 
   return (
     <div className="page-builder">
@@ -593,10 +830,7 @@ export default function PageBuilder() {
             <button
               type="button"
               className={`pb-row-main pb-row-solo ${expandedSubpage === null && overview === 'hero' ? 'active' : ''}`}
-              onClick={() => {
-                setExpandedSubpage(null);
-                setOverview('hero');
-              }}
+              onClick={() => selectOverview('hero')}
             >
               <span className="pb-row-thumb">
                 {gallery.hero[0] ? (
@@ -610,49 +844,102 @@ export default function PageBuilder() {
             </button>
           </div>
 
-          <div className="pb-group">
-            <div className="pb-group-head">
-              <span>Subpages</span>
-              <span>
-                {gallery.subpages.filter((sp) => sp.enabled !== false).length} of{' '}
-                {gallery.subpages.length} live
-              </span>
-            </div>
-            {gallery.subpages.length > 0 && filteredSubpages.length === 0 && (
-              <p className="empty-hint">No matching subpages.</p>
-            )}
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleSubpageDragEnd}
-            >
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleMenuDragEnd}
+          >
+            <div className="pb-group">
+              <div className="pb-group-head">
+                <span>Menu</span>
+                <span>
+                  {gallery.subpages.filter((sp) => sp.enabled !== false).length} of{' '}
+                  {gallery.subpages.length} subpages live
+                </span>
+              </div>
+              {(gallery.subpages.length > 0 || (gallery.pageRefs ?? []).length > 0) &&
+                menuRows.length === 0 && <p className="empty-hint">No matching entries.</p>}
               <SortableContext
-                items={filteredSubpages.map(({ index }) => `subpage-${index}`)}
+                items={menuRows.map(menuRowId)}
                 strategy={verticalListSortingStrategy}
               >
-                {filteredSubpages.map(({ sp, index }) => (
-                  <SortableSubpageRow
-                    key={`subpage-${index}`}
-                    sp={sp}
-                    spIndex={index}
-                    isActive={expandedSubpage === index}
-                    onClick={() => setExpandedSubpage(index)}
-                    getFirstThumb={getFirstSubpageThumb}
-                  />
-                ))}
+                {menuRows.map((item) => {
+                  if (item.kind === 'subpage') {
+                    const sp = gallery.subpages[item.index];
+                    return (
+                      <SortableSubpageRow
+                        key={menuRowId(item)}
+                        sp={sp}
+                        spIndex={item.index}
+                        isActive={expandedSubpage === item.index}
+                        onClick={() => selectSubpage(item.index)}
+                        getFirstThumb={getFirstSubpageThumb}
+                      />
+                    );
+                  }
+                  const page = pageBySlug.get(item.slug);
+                  return (
+                    <SortablePageRow
+                      key={menuRowId(item)}
+                      id={menuRowId(item)}
+                      title={pageTitle(item.slug)}
+                      isActive={selectedPage === item.slug}
+                      draft={page?.frontmatter.draft}
+                      hasPassword={!!page?.frontmatter.password}
+                      // Only once the list has loaded: an empty list is not proof.
+                      missing={pages.length > 0 && !page}
+                      onClick={() => selectPage(item.slug)}
+                    />
+                  );
+                })}
               </SortableContext>
-            </DndContext>
-            <button
-              type="button"
-              className="pb-add"
-              onClick={() => {
-                addSubpage();
-                setExpandedSubpage(gallery.subpages.length);
-              }}
-            >
-              <IconPlus size={13} /> New subpage
-            </button>
-          </div>
+              <div className="pb-add-row">
+                <button
+                  type="button"
+                  className="pb-add"
+                  onClick={() => {
+                    addSubpage();
+                    selectSubpage(gallery.subpages.length);
+                  }}
+                >
+                  <IconPlus size={13} /> New subpage
+                </button>
+                <button type="button" className="pb-add" onClick={() => setShowNewPage(true)}>
+                  <IconPlus size={13} /> New page
+                </button>
+              </div>
+            </div>
+
+            <div className="pb-group">
+              <div className="pb-group-head">
+                <span>Not in menu</span>
+                <span>{offMenuPages.length}</span>
+              </div>
+              <OffMenuDropZone id={OFF_MENU_ID}>
+                <SortableContext
+                  items={offMenuPages.map((p) => `off-${p.slug}`)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {offMenuPages.map((p) => (
+                    <SortablePageRow
+                      key={`off-${p.slug}`}
+                      id={`off-${p.slug}`}
+                      title={pageTitle(p.slug)}
+                      isActive={selectedPage === p.slug}
+                      draft={p.frontmatter.draft}
+                      hasPassword={!!p.frontmatter.password}
+                      onClick={() => selectPage(p.slug)}
+                    />
+                  ))}
+                </SortableContext>
+                {offMenuPages.length === 0 && (
+                  <p className="empty-hint">
+                    Pages reachable only by their link. Drag a page here to take it out of the menu.
+                  </p>
+                )}
+              </OffMenuDropZone>
+            </div>
+          </DndContext>
 
           <div className="pb-group">
             <div className="pb-group-head">
@@ -661,10 +948,7 @@ export default function PageBuilder() {
             <button
               type="button"
               className={`pb-row-main pb-row-solo ${expandedSubpage === null && overview === 'albums' ? 'active' : ''}`}
-              onClick={() => {
-                setExpandedSubpage(null);
-                setOverview('albums');
-              }}
+              onClick={() => selectOverview('albums')}
             >
               <span className="pb-row-thumb">
                 <IconCamera size={14} />
@@ -676,8 +960,19 @@ export default function PageBuilder() {
         </aside>
 
         {/* The selected entry, edited in place instead of in an overlay. */}
-        <div className="pb-panel">
-          {expandedSubpage !== null && gallery.subpages[expandedSubpage] ? (
+        <div className="pb-panel" ref={panelRef}>
+          {selectedPage !== null ? (
+            <PagePanel
+              key={selectedPage}
+              slug={selectedPage}
+              inMenu={ops.isPageInMenu(gallery, selectedPage)}
+              onToggleMenu={() => togglePageMenu(selectedPage)}
+              taken={takenSlugs}
+              otherPageSlugs={pages.map((p) => p.slug).filter((s) => s !== selectedPage)}
+              onSaved={handlePageSaved}
+              onDeleted={handlePageDeleted}
+            />
+          ) : expandedSubpage !== null && gallery.subpages[expandedSubpage] ? (
             <>
               <SubpageDrawer
                 sp={gallery.subpages[expandedSubpage]}
@@ -782,9 +1077,9 @@ export default function PageBuilder() {
                     className="admin-btn admin-btn-sm"
                     onClick={() =>
                       setHeroPickerTarget({
-                        onSelect: handleHeroSelect,
+                        onSelectMany: handleHeroSelectMany,
                         currentAssetIds: gallery.hero,
-                        title: 'Pick Hero Image for Homepage',
+                        title: 'Pick Hero Images for Homepage',
                       })
                     }
                   >
@@ -824,6 +1119,16 @@ export default function PageBuilder() {
         </div>
       </div>
 
+      {showNewPage && (
+        <NewPageDialog
+          taken={takenSlugs}
+          existingPageSlugs={pages.map((p) => p.slug)}
+          creating={creatingPage}
+          onCreate={createPage}
+          onClose={() => setShowNewPage(false)}
+        />
+      )}
+
       {/* Album Picker Modal */}
       {pickerTarget && (
         <AlbumPicker
@@ -855,6 +1160,7 @@ export default function PageBuilder() {
         <AssetPicker
           albumId={heroPickerTarget.albumId}
           onSelect={heroPickerTarget.onSelect}
+          onSelectMany={heroPickerTarget.onSelectMany}
           onClose={() => setHeroPickerTarget(null)}
           currentAssetIds={heroPickerTarget.currentAssetIds}
           title={heroPickerTarget.title}

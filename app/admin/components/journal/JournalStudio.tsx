@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { JournalEntrySummary } from '@/lib/journal';
-import { serializeJournalMarkdown, sanitizeSlug } from '@/lib/journal';
+import { serializeJournalMarkdown, sanitizeSlug, slugFieldValue } from '@/lib/journal';
 import { JOURNAL_TEMPLATES } from '@/lib/journalTemplates';
 import {
   IconTrash,
@@ -22,6 +22,7 @@ import { useContentRestored } from '../contentRestored';
 import AdminLoadState from '../AdminLoadState';
 import PageHeader from '../PageHeader';
 import { useConfirm } from '../ConfirmDialog';
+import { useModalDialog } from '@/hooks/useModalDialog';
 
 interface JournalStudioProps {
   /** Entry to open, taken from the /admin/journal/[slug] route. */
@@ -50,6 +51,11 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
   const [creating, setCreating] = useState(false);
   /** null = start blank, matching the previous (only) behavior. */
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setSelectedTemplateId(null);
+  };
+  const createCardRef = useModalDialog(closeCreateModal, showCreateModal);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -254,8 +260,16 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
       {/* Create Modal */}
       {showCreateModal && (
         <div className="journal-modal-overlay">
-          <div className="journal-modal-card">
-            <h3 style={{ margin: '0 0 1rem' }}>Create New Journal Entry</h3>
+          <div
+            className="journal-modal-card"
+            ref={createCardRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="journal-new-dialog-title"
+          >
+            <h3 id="journal-new-dialog-title" style={{ margin: '0 0 1rem' }}>
+              Create New Journal Entry
+            </h3>
             <form onSubmit={handleCreate}>
               <div style={{ marginBottom: '1rem' }}>
                 <label
@@ -304,13 +318,13 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
                   className="admin-input"
                   placeholder="e.g. expedition-nordkap"
                   value={newSlug}
-                  onChange={(e) => setNewSlug(sanitizeSlug(e.target.value))}
+                  onChange={(e) => setNewSlug(slugFieldValue(e.target.value))}
                   required
                 />
                 <span
                   style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '2px', display: 'block' }}
                 >
-                  Will be accessible at /journal/{newSlug || 'slug'}
+                  Will be accessible at /journal/{newSlug ? sanitizeSlug(newSlug) : 'slug'}
                 </span>
               </div>
 
@@ -352,10 +366,7 @@ export function JournalStudio({ slug: activeSlug, mapEnabled }: JournalStudioPro
                 <button
                   type="button"
                   className="admin-btn admin-btn-secondary"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setSelectedTemplateId(null);
-                  }}
+                  onClick={closeCreateModal}
                 >
                   Cancel
                 </button>

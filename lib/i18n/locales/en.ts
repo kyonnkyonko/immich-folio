@@ -19,6 +19,8 @@ export const en = {
     map: 'Map',
     journal: 'Journal',
     skipToContent: 'Skip to content',
+    mainNavAria: 'Main',
+    heroNavAria: 'Sections',
     openMenu: 'Open menu',
     closeMenu: 'Close menu',
   },
@@ -45,12 +47,15 @@ export const en = {
     nextEntryAria: (title: string) => `Next entry: ${title}`,
     entryNavAria: 'Journal entry navigation',
     loadingGallery: 'Loading gallery',
+    gallery: 'Gallery',
     loadingPhotos: 'Loading photos',
     downloadAlbum: 'Download album',
   },
 
   home: {
     enter: 'Enter',
+    pauseSlideshow: 'Pause slideshow',
+    playSlideshow: 'Play slideshow',
   },
 
   error: {
@@ -59,8 +64,6 @@ export const en = {
     errorTitle: 'Something went wrong',
     errorText:
       'This page could not be loaded right now. It is usually temporary — try again in a moment.',
-    siteErrorText:
-      'This site could not be loaded right now. It is usually temporary — try again in a moment.',
     tryAgain: 'Try again',
     reference: (digest: string) => `Reference: ${digest}`,
   },
@@ -72,6 +75,7 @@ export const en = {
     rateLimited: 'Too many download requests. Please wait a moment and try again.',
     immichUnavailable: 'The photo library is unavailable right now. Please try again shortly.',
     back: 'Back to the gallery',
+    limitReached: 'The download limit for this link has been reached.',
   },
 
   theme: {
@@ -83,11 +87,18 @@ export const en = {
   password: {
     subtitle: 'This gallery is password-protected.',
     siteSubtitle: 'This site is password-protected.',
+    pageSubtitle: 'This page is password-protected.',
+    journalSubtitle: 'This journal entry is password-protected.',
+    protectedPage: 'Protected page',
     placeholder: 'Enter password',
     submit: 'Enter',
     verifying: 'Verifying…',
     incorrect: 'Incorrect password. Please try again.',
     failed: 'Unable to verify password. Please try again later.',
+    tooManyAttempts: (seconds: number | null) =>
+      seconds
+        ? `Too many attempts. Please try again in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`
+        : 'Too many attempts. Please try again later.',
   },
 
   about: {
@@ -105,6 +116,10 @@ export const en = {
     loading: 'Loading map…',
     loadFailed: (status: number) => `Failed to load map data (${status})`,
     initFailed: 'Failed to initialize map',
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    // The title on the Leaflet credit in the map's corner.
+    leafletTitle: 'A JavaScript library for interactive maps',
   },
 
   subpage: {
@@ -131,6 +146,7 @@ export const en = {
 
   lightbox: {
     viewer: 'Image viewer',
+    position: (n: number, total: number) => `Photo ${n} of ${total}`,
     /** A grid tile, which opens the viewer on that photo. */
     openPhoto: (n: number) => `View photo ${n}`,
     close: 'Close',
@@ -183,6 +199,8 @@ export const en = {
     saved: 'Saved',
     favorite: 'Favorite',
     showAll: 'Show All',
+    /** Shown in place of the grid when the filter is on and nothing is selected. */
+    filterEmpty: 'No photos selected.',
     selected: (n: number) => `❤️ ${n} Selected`,
     shareExport: 'Share & Export',
     modalTitle: (n: number) => `❤️ Selection (${n})`,
@@ -203,9 +221,34 @@ export const en = {
     listEmpty: (albumName: string) => `${albumName}: No photos selected.`,
     listSummary: (albumName: string, count: number, indices: string) =>
       `${albumName} — Selected Photos (${count}): ${indices}`,
-    mailSubject: (n: number) => `Photo Selection (${n} items)`,
+    mailSubject: (n: number) => `Photo Selection (${plural(n, 'item', 'items')})`,
     mailBody: (list: string, url: string) =>
       `Hello,\n\nHere is my photo selection:\n\n${list}\n\nShare Link: ${url}\n\nBest regards,`,
+  },
+
+  /** Client proofing links (/proof/<token>). */
+  proofSession: {
+    greeting: (name: string) => `Selection for ${name}`,
+    intro:
+      'Tap the heart on the photos you want. Your selection is saved as you go — you can come back with this link at any time.',
+    saving: 'Saving…',
+    saved: 'Selection saved',
+    saveFailed: 'Your selection could not be saved. Check your connection and try again.',
+    review: 'Review & submit',
+    modalTitle: (n: number) => `Your selection (${n})`,
+    empty: 'No photos selected yet.',
+    submit: 'Submit selection',
+    submitting: 'Submitting…',
+    confirmSubmit: (n: number) =>
+      `Submit ${plural(n, 'photo', 'photos')}? The selection cannot be changed afterwards.`,
+    submitted: 'Thank you — your selection has been submitted.',
+    locked: 'This selection has been submitted and can no longer be changed.',
+    validUntil: (date: string) => `This link is valid until ${date}.`,
+    expiredTitle: 'This link has expired',
+    expiredText: 'Please ask your photographer for a new link.',
+    downloadSelection: 'Download selection (.zip)',
+    downloadAll: 'Download all photos (.zip)',
+    downloadsLeft: (n: number) => `${plural(n, 'download', 'downloads')} left`,
   },
 
   legal: {

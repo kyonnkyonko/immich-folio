@@ -15,8 +15,9 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import Image from 'next/image';
 import { Lightbox, type LightboxWatermark } from '@/components/Lightbox';
 import { FadeIn } from '@/components/FadeIn';
-import { ProofingProvider, useProofing } from '@/components/ProofingContext';
-import { ProofingModal } from '@/components/ProofingModal';
+import type { ProofSessionInit } from '@/components/ProofingContext';
+import { useProofing } from '@/components/useProofing';
+import { ProofingProvider, ProofingModal, ProofSessionControls } from '@/components/ProofingLazy';
 import { useDictionary } from '@/components/I18nProvider';
 import { parsePhotoHash, parsePhotoQuery, buildPhotoQuery } from '@/lib/photoHash';
 
@@ -61,6 +62,12 @@ interface PhotoGridProps {
   /** Offer the "send by email" button in the proofing modal. */
   allowMailto?: boolean;
   /**
+   * `encodeEmail()` of where the proofing dialog's "email to photographer"
+   * goes, when one is configured (#736). Lets the modal address the compose;
+   * without it the button is hidden.
+   */
+  encodedMailto?: string;
+  /**
    * The ZIP endpoint for this album, when it offers downloads. Lets the
    * proofing modal offer a "download selected" action (#475).
    */
@@ -71,6 +78,11 @@ interface PhotoGridProps {
    * selection made in one album leaks into the next.
    */
   albumName?: string;
+  /**
+   * A client proofing link's session (/proof/<token>). Turns proofing on and
+   * keeps the selection on the server instead of in the browser.
+   */
+  proofSession?: ProofSessionInit;
 }
 
 function PhotoGridInner({
@@ -123,6 +135,33 @@ function PhotoGridInner({
       window.history.replaceState(null, '', url);
     }
   }, [lightboxIndex, displayedAssets]);
+
+  // ── The photo on screen can leave the list ─────────────────────
+  // With "selected only" on, un-hearting the photo in the viewer drops it from
+  // `displayedAssets`. The viewer keeps its position, which now shows the next
+  // favourite; past the end it steps back to the last one, and with nothing
+  // left it closes. `shownIndex` keeps this render valid (it used to hand the
+  // viewer an index past the end, and the page crashed); the effect settles
+  // the state and the URL.
+  const shownIndex =
+    lightboxIndex === null || displayedAssets.length === 0
+      ? null
+      : Math.min(lightboxIndex, displayedAssets.length - 1);
+
+  useEffect(() => {
+    if (lightboxIndex === null || lightboxIndex < displayedAssets.length) return;
+    if (displayedAssets.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLightboxIndex(displayedAssets.length - 1);
+      return;
+    }
+    setLightboxIndex(null);
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + buildPhotoQuery(window.location.search, null),
+    );
+  }, [lightboxIndex, displayedAssets.length]);
 
   // ── Listen for browser back/forward ────────────────────────────
   useEffect(() => {
@@ -204,6 +243,7 @@ function PhotoGridInner({
             }}
             role="button"
             tabIndex={0}
+            data-lightbox-index={index}
             aria-label={t.lightbox.openPhoto(index + 1)}
             aria-haspopup="dialog"
             style={{
@@ -285,13 +325,38 @@ function PhotoGridInner({
     });
   }, [displayedAssets, layout, openLightbox, proofing, t]);
 
+  // Photos of this album that are selected. Not `favorites.size`: the stored set
+  // can also hold a photo since removed, or a favourite from another album whose
+  // name slugs the same way (they share `folio_fav_<name>`).
+  const selectedCount = proofing ? proofing.getSelectedTokens().length : 0;
+
   return (
     <>
-      <div className={`photo-grid photo-grid--${layout}`} style={gridStyle}>
-        {gridItems}
-      </div>
+      {proofing?.isFilterActive && displayedAssets.length === 0 ? (
+        // Un-hearting the last favourite with the filter on left a blank page
+        // between the header and the footer. Say why, and offer the way back
+        // here as well as in the bar in the corner.
+        <div className="empty-state" role="status">
+          <p className="empty-state__text">{t.proofing.filterEmpty}</p>
+          <div className="empty-state__actions">
+            <button
+              type="button"
+              className="empty-state__button"
+              onClick={() => proofing.setIsFilterActive(false)}
+            >
+              {t.proofing.showAll}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className={`photo-grid photo-grid--${layout}`} style={gridStyle} data-lightbox-group>
+          {gridItems}
+        </div>
+      )}
 
-      {proofing && proofing.favorites.size > 0 && (
+      {/* Kept while the filter is on: un-hearting the last favourite there
+          empties the grid, and the bar holds the only way back to all photos. */}
+      {proofing && !proofing.session && (selectedCount > 0 || proofing.isFilterActive) && (
         <div
           className="proofing-sticky-bar"
           style={{
@@ -327,9 +392,7 @@ function PhotoGridInner({
               cursor: 'pointer',
             }}
           >
-            {proofing.isFilterActive
-              ? t.proofing.showAll
-              : t.proofing.selected(proofing.favorites.size)}
+            {proofing.isFilterActive ? t.proofing.showAll : t.proofing.selected(selectedCount)}
           </button>
           <button
             type="button"
@@ -349,12 +412,13 @@ function PhotoGridInner({
         </div>
       )}
 
-      {proofing && <ProofingModal />}
+      {proofing && !proofing.session && <ProofingModal />}
+      {proofing?.session && <ProofSessionControls />}
 
-      {lightboxIndex !== null && (
+      {shownIndex !== null && (
         <Lightbox
           assets={displayedAssets}
-          currentIndex={lightboxIndex}
+          currentIndex={shownIndex}
           onClose={closeLightbox}
           onNext={goNext}
           onPrev={goPrev}
@@ -372,7 +436,7 @@ export function PhotoGrid(props: PhotoGridProps) {
   // Without the provider useProofing() returns null, and every proofing control
   // (hearts in the grid and in the lightbox, selection bar, modal) drops out on
   // its own.
-  if (!props.proofing) {
+  if (!props.proofing && !props.proofSession) {
     return <PhotoGridInner {...props} />;
   }
 
@@ -381,7 +445,9 @@ export function PhotoGrid(props: PhotoGridProps) {
       albumTokens={albumTokens}
       albumName={props.albumName}
       allowMailto={props.allowMailto ?? true}
+      encodedMailto={props.encodedMailto}
       downloadArchiveUrl={props.downloadArchiveUrl}
+      session={props.proofSession}
     >
       <PhotoGridInner {...props} />
     </ProofingProvider>

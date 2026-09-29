@@ -47,7 +47,7 @@ const NAV: {
       {
         label: 'Pages',
         href: '/admin/pages',
-        match: /^\/admin\/pages$/,
+        match: /^\/admin\/pages(\/|$)/,
         icon: <Icons.IconGrid size={16} />,
       },
       {
@@ -67,6 +67,12 @@ const NAV: {
         match: /^\/admin\/messages/,
         icon: <Icons.IconFileText size={16} />,
         badge: 'messages',
+      },
+      {
+        label: 'Proofing',
+        href: '/admin/proofing',
+        match: /^\/admin\/proofing/,
+        icon: <Icons.IconHeart size={16} />,
       },
       {
         label: 'Analytics',
@@ -277,6 +283,9 @@ export default function AdminDashboard({ onLogout, children }: Props) {
         menuOpen ? ' menu-open' : ''
       }`}
     >
+      <a href="#admin-main" className="skip-link">
+        Skip to content
+      </a>
       <aside className="admin-sidebar" aria-label="Admin">
         <button
           type="button"
@@ -506,7 +515,9 @@ export default function AdminDashboard({ onLogout, children }: Props) {
         </div>
       </aside>
 
-      <main className="admin-main admin-workspace">{children}</main>
+      <main id="admin-main" tabIndex={-1} className="admin-main admin-workspace">
+        {children}
+      </main>
 
       <BackupManagerModal
         isOpen={showBackupModal}

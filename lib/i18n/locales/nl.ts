@@ -19,6 +19,8 @@ export const nl: Dictionary = {
     map: 'Kaart',
     journal: 'Journal',
     skipToContent: 'Naar de inhoud',
+    mainNavAria: 'Hoofdnavigatie',
+    heroNavAria: 'Onderdelen',
     openMenu: 'Menu openen',
     closeMenu: 'Menu sluiten',
   },
@@ -44,12 +46,15 @@ export const nl: Dictionary = {
     nextEntryAria: (title: string) => `Volgend verhaal: ${title}`,
     entryNavAria: 'Navigatie tussen journalverhalen',
     loadingGallery: 'Galerij laden',
+    gallery: 'Galerie',
     loadingPhotos: 'Foto’s laden',
     downloadAlbum: 'Album downloaden',
   },
 
   home: {
     enter: 'Binnenkomen',
+    pauseSlideshow: 'Diavoorstelling pauzeren',
+    playSlideshow: 'Diavoorstelling afspelen',
   },
 
   error: {
@@ -58,8 +63,6 @@ export const nl: Dictionary = {
     errorTitle: 'Er is iets misgegaan',
     errorText:
       'Deze pagina kon niet worden geladen. Meestal is dat tijdelijk — probeer het zo nog eens.',
-    siteErrorText:
-      'Deze site kon niet worden geladen. Meestal is dat tijdelijk — probeer het zo nog eens.',
     tryAgain: 'Opnieuw proberen',
     reference: (digest: string) => `Referentie: ${digest}`,
   },
@@ -71,6 +74,7 @@ export const nl: Dictionary = {
     immichUnavailable:
       'De fotobibliotheek is op dit moment niet bereikbaar. Probeer het zo opnieuw.',
     back: 'Terug naar de galerij',
+    limitReached: 'Het downloadlimiet voor deze link is bereikt.',
   },
 
   theme: {
@@ -82,11 +86,18 @@ export const nl: Dictionary = {
   password: {
     subtitle: 'Deze galerij is met een wachtwoord beveiligd.',
     siteSubtitle: 'Deze site is met een wachtwoord beveiligd.',
+    pageSubtitle: 'Deze pagina is met een wachtwoord beveiligd.',
+    journalSubtitle: 'Dit journalverhaal is met een wachtwoord beveiligd.',
+    protectedPage: 'Beveiligde pagina',
     placeholder: 'Voer het wachtwoord in',
     submit: 'Binnenkomen',
     verifying: 'Controleren…',
     incorrect: 'Onjuist wachtwoord. Probeer het opnieuw.',
     failed: 'Het wachtwoord kon niet worden gecontroleerd. Probeer het later opnieuw.',
+    tooManyAttempts: (seconds: number | null) =>
+      seconds
+        ? `Te veel pogingen. Probeer het over ${seconds} ${seconds === 1 ? 'seconde' : 'seconden'} opnieuw.`
+        : 'Te veel pogingen. Probeer het later opnieuw.',
   },
 
   about: {
@@ -104,6 +115,9 @@ export const nl: Dictionary = {
     loading: 'Kaart laden…',
     loadFailed: (status: number) => `Kaartgegevens konden niet worden geladen (${status})`,
     initFailed: 'De kaart kon niet worden gestart',
+    zoomIn: 'Inzoomen',
+    zoomOut: 'Uitzoomen',
+    leafletTitle: 'Een JavaScript-bibliotheek voor interactieve kaarten',
   },
 
   subpage: {
@@ -130,6 +144,7 @@ export const nl: Dictionary = {
 
   lightbox: {
     viewer: 'Fotoviewer',
+    position: (n: number, total: number) => `Foto ${n} van ${total}`,
     openPhoto: (n: number) => `Foto ${n} bekijken`,
     close: 'Sluiten',
     closeTitle: 'Sluiten (Esc)',
@@ -182,6 +197,7 @@ export const nl: Dictionary = {
     saved: 'Opgeslagen',
     favorite: 'Favoriet',
     showAll: 'Alles tonen',
+    filterEmpty: "Geen foto's geselecteerd.",
     selected: (n: number) => `❤️ ${n} geselecteerd`,
     shareExport: 'Delen & exporteren',
     modalTitle: (n: number) => `❤️ Selectie (${n})`,
@@ -204,6 +220,31 @@ export const nl: Dictionary = {
     mailSubject: (n: number) => `Fotoselectie (${n})`,
     mailBody: (list: string, url: string) =>
       `Hallo,\n\nHier is mijn fotoselectie:\n\n${list}\n\nDeellink: ${url}\n\nMet vriendelijke groet,`,
+  },
+
+  proofSession: {
+    greeting: (name: string) => `Selectie voor ${name}`,
+    intro:
+      'Tik op het hartje bij de foto’s die je wilt. Je selectie wordt meteen opgeslagen — je kunt met deze link altijd terugkomen.',
+    saving: 'Opslaan…',
+    saved: 'Selectie opgeslagen',
+    saveFailed:
+      'Je selectie kon niet worden opgeslagen. Controleer je verbinding en probeer het opnieuw.',
+    review: 'Bekijken & versturen',
+    modalTitle: (n: number) => `Jouw selectie (${n})`,
+    empty: 'Nog geen foto’s geselecteerd.',
+    submit: 'Selectie versturen',
+    submitting: 'Versturen…',
+    confirmSubmit: (n: number) =>
+      `${plural(n, 'foto', 'foto’s')} versturen? Daarna kun je de selectie niet meer wijzigen.`,
+    submitted: 'Bedankt — je selectie is verstuurd.',
+    locked: 'Deze selectie is verstuurd en kan niet meer worden gewijzigd.',
+    validUntil: (date: string) => `Deze link is geldig tot ${date}.`,
+    expiredTitle: 'Deze link is verlopen',
+    expiredText: 'Vraag je fotograaf om een nieuwe link.',
+    downloadSelection: 'Selectie downloaden (.zip)',
+    downloadAll: 'Alle foto’s downloaden (.zip)',
+    downloadsLeft: (n: number) => `Nog ${plural(n, 'download', 'downloads')}`,
   },
 
   legal: {

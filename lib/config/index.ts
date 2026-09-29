@@ -3,7 +3,7 @@ import path from 'node:path';
 import { env } from '../env';
 import { resolveAuthSecret } from '../secret';
 import { resolveSiteUrl } from '../siteUrl';
-import { getInstallCredentials } from '../install';
+import { getInstallCredentials, installFilePath } from '../install';
 import { loadYaml, clearYamlCache, validateUuid } from './parser';
 import { resolveTheme, VALID_LAYOUTS, DEFAULT_PRESET } from './theme';
 import { ALBUM_SORT_MODES, isAlbumSortMode, type AlbumSortMode } from '../albumSort';
@@ -30,14 +30,23 @@ import {
   CONTACT_RETENTION_DEFAULT,
   CONTACT_RETENTION_MAX,
   isHttpUrl,
+  isPageRef,
+  type GallerySubpageYaml,
 } from './schema';
+import { isValidSlug } from '../journal';
+import { getDictionary, resolveLocale } from '../i18n';
+import type { NavEntry } from '../pages';
 
 export * from './schema';
 export * from './theme';
 
+/** The last derived config and the inputs it was derived from; see getConfig(). */
+let derived: { inputs: string; config: AppConfig } | null = null;
+
 /** Invalidate the cached YAML so the next getConfig() call re-parses the files. */
 export function invalidateConfigCache(): void {
   clearYamlCache();
+  derived = null;
 }
 
 /**
@@ -151,6 +160,20 @@ export function resolveProofing(
 }
 
 /**
+ * The recipient of the proofing dialog's "email to photographer" (#736):
+ * `proofing.email` when set, else the footer contact email. The first
+ * non-empty value, trimmed — an address saved as only whitespace is not
+ * configured. Undefined means neither is set, and the dialog hides the button
+ * rather than opening a compose with an empty To:.
+ */
+export function resolveProofingEmail(
+  proofingEmail?: string,
+  footerEmail?: string,
+): string | undefined {
+  return (proofingEmail ?? '').trim() || (footerEmail ?? '').trim() || undefined;
+}
+
+/**
  * EXPERIMENTAL: keep only nav links that are safe to render as header <a>
  * tags. Non-http(s) schemes (javascript:, data:) and incomplete entries are
  * dropped with a warning rather than throwing — a bad external link should
@@ -244,6 +267,7 @@ export interface GalleryDerivation {
   albums: string[];
   standaloneAlbums: string[];
   subpages: SubpageConfig[];
+  nav: NavEntry[];
   albumOverrides: Record<string, string>;
   albumDescriptions: Record<string, string>;
   albumPasswords: Record<string, string>;
@@ -408,9 +432,35 @@ export function deriveGallery(gallery: GalleryYaml): GalleryDerivation {
   const standaloneAlbumIds = processAlbumEntries(gallery.albums ?? [], 'gallery.yaml albums');
 
   let subpages: SubpageConfig[] = [];
+  /** Menu order, subpages and `- page:` references interleaved (#722). */
+  const nav: NavEntry[] = [];
 
   if (Array.isArray(gallery.subpages)) {
-    subpages = gallery.subpages.map((sp) => {
+    const pageRefs = new Set<string>();
+    const subpageEntries: GallerySubpageYaml[] = [];
+    for (const entry of gallery.subpages) {
+      if (isPageRef(entry)) {
+        const slug = entry.page.trim();
+        // Thrown like every other structure error: the admin PUT turns it into
+        // a 400, and a hand-edited file degrades to the setup screen.
+        if (!isValidSlug(slug)) {
+          throw new Error(
+            `gallery.yaml subpages: "page: ${entry.page}" is not a valid page slug ` +
+              `(letters, digits, "-" and "_" only).`,
+          );
+        }
+        if (pageRefs.has(slug)) {
+          throw new Error(`gallery.yaml subpages: page "${slug}" is listed more than once.`);
+        }
+        pageRefs.add(slug);
+        nav.push({ type: 'page', slug });
+      } else {
+        subpageEntries.push(entry);
+        // Placeholder, filled in with the derived slug below.
+        nav.push({ type: 'subpage', slug: '' });
+      }
+    }
+    subpages = subpageEntries.map((sp) => {
       if (!sp.name) {
         throw new Error(`Subpage "(unnamed)" must have a name`);
       }
@@ -467,6 +517,10 @@ export function deriveGallery(gallery: GalleryYaml): GalleryDerivation {
         ...buildSubpageGrids(sp.grid, sp.coverGrid),
       };
     });
+    let next = 0;
+    for (const entry of nav) {
+      if (entry.type === 'subpage') entry.slug = subpages[next++].slug;
+    }
   } else if (gallery.subpages) {
     subpages = Object.entries(gallery.subpages).map(([name, value]) => {
       if (Array.isArray(value)) {
@@ -498,6 +552,10 @@ export function deriveGallery(gallery: GalleryYaml): GalleryDerivation {
         ...buildSubpageGrids(sp.grid, sp.coverGrid),
       };
     });
+  }
+
+  if (!Array.isArray(gallery.subpages)) {
+    for (const sp of subpages) nav.push({ type: 'subpage', slug: sp.slug });
   }
 
   const subpageAlbumIds = new Set(subpages.flatMap((sp) => sp.albumIds));
@@ -550,6 +608,7 @@ export function deriveGallery(gallery: GalleryYaml): GalleryDerivation {
     albums: allAlbumIds,
     standaloneAlbums,
     subpages,
+    nav,
     albumOverrides,
     albumDescriptions,
     albumPasswords,
@@ -572,11 +631,54 @@ function aboutContentExists(): boolean {
   }
 }
 
+/**
+ * Everything deriveConfig() reads, as one string: the path and mtime of each
+ * file (or `-` when it is absent) and the parsed environment.
+ */
+function configInputs(): string {
+  const content = path.join(process.cwd(), 'content');
+  const files = [
+    installFilePath(),
+    path.join(content, 'gallery.yaml'),
+    path.join(content, 'settings.yaml'),
+    path.join(content, 'about.md'),
+  ];
+  // throwIfNoEntry: a missing file is the normal case for install.json and
+  // about.md, and building an ENOENT error costs more than the stat.
+  // turbopackIgnore: `file` is not statically resolvable, so without the
+  // comment Turbopack traces the whole project into .next/standalone. Only
+  // the mtime is read here; the files themselves are loaded elsewhere.
+  const stamps = files.map(
+    (file) =>
+      `${file}@${fs.statSync(/* turbopackIgnore: true */ file, { throwIfNoEntry: false })?.mtimeMs ?? '-'}`,
+  );
+  return `${stamps.join('|')}|${JSON.stringify(env)}`;
+}
+
+/**
+ * The site configuration.
+ *
+ * Admin saves can land in a different worker or process than page rendering,
+ * so this cannot be a per-process singleton: freshness comes from the files'
+ * mtimes, re-checked on every call (a statSync each). What is cached is the
+ * derivation. A render and every image request call this many times over
+ * (`immich.config` is a getter), and rebuilding the whole config from the
+ * YAML each time cost more than the stats.
+ *
+ * The inputs are the ones loadYaml() and readInstallFile() already key their
+ * own caches on, so this is never staler than they are. Each caller still
+ * gets its own copy, exactly as before: nothing can mutate the cached one.
+ * A config that throws is not cached, so it throws again on the next call.
+ */
 export function getConfig(): AppConfig {
-  // No in-memory config cache: admin saves can land in a different
-  // worker/process than page rendering, so a per-worker cache goes stale
-  // until restart. Freshness comes from the mtime-checked YAML cache in
-  // loadYaml() — a statSync per file, negligible next to Immich API calls.
+  const inputs = configInputs();
+  if (derived?.inputs !== inputs) {
+    derived = { inputs, config: deriveConfig() };
+  }
+  return structuredClone(derived.config);
+}
+
+function deriveConfig(): AppConfig {
   const { apiUrl, apiKey } = getInstallCredentials();
   const authSecret = resolveAuthSecret();
 
@@ -604,6 +706,7 @@ export function getConfig(): AppConfig {
       albums: [],
       standaloneAlbums: [],
       subpages: [],
+      nav: [],
       siteTitle: env.SITE_TITLE || 'Immich Folio',
       siteSubtitle: env.SITE_SUBTITLE || 'Setup Required',
       lang: 'en',
@@ -665,6 +768,7 @@ export function getConfig(): AppConfig {
     albums: allAlbumIds,
     standaloneAlbums,
     subpages,
+    nav,
     albumOverrides,
     albumDescriptions,
     albumPasswords,
@@ -677,7 +781,10 @@ export function getConfig(): AppConfig {
     albumLocationPrecision,
   } = deriveGallery(gallery);
 
-  const siteSeoTitle = settings.seo?.title || settings.title || env.SITE_TITLE || 'Gallery';
+  // Last-resort title in the site's own language rather than a hardcoded
+  // English "Gallery" (#696).
+  const defaultTitle = env.SITE_TITLE || getDictionary(resolveLocale(settings.lang)).common.gallery;
+  const siteSeoTitle = settings.seo?.title || settings.title || defaultTitle;
 
   return {
     immich: { apiUrl: immichApiUrl, apiKey },
@@ -685,7 +792,8 @@ export function getConfig(): AppConfig {
     albums: allAlbumIds,
     standaloneAlbums,
     subpages,
-    siteTitle: settings.title ?? env.SITE_TITLE,
+    nav,
+    siteTitle: settings.title ?? defaultTitle,
     siteSubtitle: settings.subtitle ?? env.SITE_SUBTITLE,
     lang: settings.lang ?? 'en',
     // Env wins, so a deployment can rotate the site password without touching
@@ -746,6 +854,9 @@ export function getConfig(): AppConfig {
     proofing: {
       enabled: settings.proofing?.enabled !== false,
       allowMailto: settings.proofing?.allowMailto !== false,
+      // `proofing.email`, else the footer contact email (#736); absent hides
+      // the dialog's email button.
+      email: resolveProofingEmail(settings.proofing?.email, settings.footer?.email),
     },
     protection: settings.protection,
     watermark: settings.watermark,

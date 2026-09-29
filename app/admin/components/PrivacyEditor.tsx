@@ -11,10 +11,15 @@
  * key in settings.yaml.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Icons from './Icons';
 import { reportIfSessionExpired } from './sessionExpiry';
 import { useUnsavedGuard } from './useUnsavedGuard';
+import { useContentRestored } from './contentRestored';
+import { useVersionedSave } from './useVersionedSave';
+import { useLatest } from './useLatest';
+import { useDraft } from './useDraft';
+import DraftNotice from './DraftNotice';
 import type { ProcessingFact } from '@/lib/privacy';
 
 interface PrivacyData {
@@ -22,6 +27,7 @@ interface PrivacyData {
   enabled: boolean;
   facts: ProcessingFact[];
   starter: string;
+  version?: string;
 }
 
 type Status = { kind: 'success' | 'error'; message: string } | null;
@@ -35,44 +41,80 @@ export default function PrivacyEditor() {
   const [status, setStatus] = useState<Status>(null);
 
   useUnsavedGuard(dirty);
+  // The editor lives in the Legal section and unmounts when another section
+  // opens; without a draft an unsaved policy was simply gone (#554, #592).
+  const draft = useDraft<string>('privacy', body, dirty);
+  const loadDraft = draft.load;
+
+  /** privacy.md as loaded, sent back on save so a change elsewhere is caught (#601). */
+  const versionRef = useRef<string | null>(null);
+  const versionedSave = useVersionedSave();
+  /** The text as last rendered: tells a finished save whether typing went on meanwhile. */
+  const latestBody = useLatest(body);
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  });
+
+  const load = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch('/api/admin/privacy');
+      if (!res.ok) {
+        reportIfSessionExpired(res);
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const d = (await res.json()) as PrivacyData;
+      versionRef.current = d.version ?? null;
+      setData(d);
+      const restored = loadDraft(d.body);
+      setBody(restored ?? d.body);
+      setDirty(restored !== null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Could not load.');
+    }
+  }, [loadDraft]);
 
   useEffect(() => {
-    let live = true;
-    fetch('/api/admin/privacy')
-      .then(async (res) => {
-        if (!res.ok) {
-          reportIfSessionExpired(res);
-          throw new Error(`HTTP ${res.status}`);
-        }
-        return (await res.json()) as PrivacyData;
-      })
-      .then((d) => {
-        if (!live) return;
-        setData(d);
-        setBody(d.body);
-      })
-      .catch((err: Error) => live && setLoadError(err.message));
-    return () => {
-      live = false;
-    };
-  }, []);
+    void load();
+  }, [load]);
+
+  // A restored privacy.md replaces what this editor shows — unless there are
+  // unsaved edits, which stay; their save then meets the conflict prompt.
+  useContentRestored(({ target }) => {
+    if (target === 'privacy' && !dirtyRef.current) void load();
+  });
 
   async function save() {
     setSaving(true);
     setStatus(null);
+    const sent = body;
     try {
-      const res = await fetch('/api/admin/privacy', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
-      });
-      if (!res.ok) {
-        if (!reportIfSessionExpired(res)) {
-          setStatus({ kind: 'error', message: `Could not save (HTTP ${res.status}).` });
+      const result = await versionedSave(
+        '/api/admin/privacy',
+        { body: sent },
+        versionRef,
+        'The privacy policy',
+      );
+      if (result.kind === 'reload') {
+        draft.discard();
+        await load();
+        return;
+      }
+      if (result.kind === 'keep') {
+        setStatus({ kind: 'error', message: 'Not saved — the policy changed elsewhere.' });
+        return;
+      }
+      if (result.kind === 'failed') {
+        if (!reportIfSessionExpired(result.res)) {
+          setStatus({ kind: 'error', message: `Could not save (HTTP ${result.res.status}).` });
         }
         return;
       }
-      setDirty(false);
+      // Typed while the request was out: that part is not saved yet.
+      const editedMeanwhile = latestBody.current !== sent;
+      setData((d) => (d ? { ...d, body: sent } : d));
+      draft.saved(sent, editedMeanwhile);
+      if (!editedMeanwhile) setDirty(false);
       setStatus({ kind: 'success', message: 'Privacy policy saved.' });
     } catch {
       setStatus({ kind: 'error', message: 'Could not reach the server.' });
@@ -99,6 +141,24 @@ export default function PrivacyEditor() {
 
   return (
     <div className="privacy-editor">
+      <DraftNotice
+        status={draft.status}
+        subject="privacy policy"
+        onDiscard={() => {
+          draft.discard();
+          setBody(data.body);
+          setDirty(false);
+          setStatus(null);
+        }}
+        onRestore={() => {
+          const value = draft.takeConflicting();
+          if (value === null) return;
+          setBody(value);
+          setDirty(true);
+        }}
+        onDismiss={draft.dismiss}
+      />
+
       <div className="privacy-editor__facts">
         <h4>What this site processes</h4>
         <p className="admin-field-hint">

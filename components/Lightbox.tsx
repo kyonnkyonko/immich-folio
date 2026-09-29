@@ -19,7 +19,7 @@ import type { PhotoItem } from '@/app/[...path]/PhotoGrid';
 import { useExif } from '@/hooks/useExif';
 import { useSwipe } from '@/hooks/useSwipe';
 import styles from './Lightbox.module.css';
-import { useProofing } from './ProofingContext';
+import { useProofing } from './useProofing';
 import { IconHeart } from './Icons';
 import { useDictionary } from './I18nProvider';
 // From lib/config/schema directly: lib/config/index.ts pulls in `fs`, which a
@@ -27,6 +27,8 @@ import { useDictionary } from './I18nProvider';
 import { resolveWatermarkOpacity } from '@/lib/config/schema';
 import { formatCamera } from '@/lib/exif';
 import { buildPhotoPermalink } from '@/lib/photoHash';
+import { trapTabKey } from '@/lib/focusTrap';
+import { canonicalImageUrl } from '@/lib/imageSize';
 import { nextSlideshowSpeed, type SlideshowSpeed } from '@/lib/slideshow';
 import {
   LIGHTBOX_SHORTCUTS,
@@ -104,6 +106,34 @@ export function Lightbox({
       closeBtnRef.current?.focus();
     }
   }, [mounted]);
+
+  /*
+   * Focus stays inside the dialog while it is open, and goes back to the grid
+   * when it closes (#696) — to the tile of the photo that was on screen last,
+   * not necessarily the one that opened the viewer, so a keyboard visitor who
+   * browsed ahead continues from where they are. Tiles mark themselves with
+   * `data-lightbox-index` inside a `data-lightbox-group`; without them the
+   * opener gets focus back.
+   */
+  const indexRef = useRef(currentIndex);
+  useEffect(() => {
+    indexRef.current = currentIndex;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onTab = (e: KeyboardEvent) => {
+      if (overlayRef.current) trapTabKey(overlayRef.current, e);
+    };
+    document.addEventListener('keydown', onTab);
+    return () => {
+      document.removeEventListener('keydown', onTab);
+      const group = opener?.closest('[data-lightbox-group]');
+      const tile = group?.querySelector<HTMLElement>(`[data-lightbox-index="${indexRef.current}"]`);
+      const target = tile ?? opener;
+      if (target?.isConnected) target.focus();
+    };
+  }, []);
 
   // Reset EXIF data when switching images; refetch if panel is open
   useEffect(() => {
@@ -260,7 +290,7 @@ export function Lightbox({
     const preload = (index: number) => {
       if (index >= 0 && index < assets.length && assets[index].type !== 'video') {
         const img = new Image();
-        img.src = assets[index].previewUrl;
+        img.src = canonicalImageUrl(assets[index].previewUrl);
       }
     };
     preload(currentIndex + 1);
@@ -487,7 +517,7 @@ export function Lightbox({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             className={`${styles.image}${imageLoaded ? ` ${styles.imageLoaded}` : ''}`}
-            src={current.previewUrl}
+            src={canonicalImageUrl(current.previewUrl)}
             alt={current.caption ?? ''}
             draggable={false}
             onLoad={() => setImageLoaded(true)}
@@ -609,9 +639,7 @@ export function Lightbox({
 
         {/* Counter */}
         <div className={styles.counter} aria-live="polite" aria-atomic="true">
-          <span className="sr-only">
-            Photo {currentIndex + 1} of {assets.length}
-          </span>
+          <span className="sr-only">{t.lightbox.position(currentIndex + 1, assets.length)}</span>
           <span aria-hidden="true">
             {currentIndex + 1} / {assets.length}
           </span>
@@ -621,11 +649,7 @@ export function Lightbox({
           {/* Proofing favorite button */}
           {proofing && current && (
             <button
-              className={styles.infoToggle}
-              style={{
-                color: isFav ? '#ff4d4f' : 'inherit',
-                fontWeight: isFav ? 600 : 400,
-              }}
+              className={`${styles.infoToggle}${isFav ? ` ${styles.favActive}` : ''}`}
               onClick={() => proofing.toggleFavorite(current.id)}
               aria-label={isFav ? t.proofing.removeFromFavorites : t.proofing.addToFavorites}
               title={isFav ? t.proofing.removeFromFavorites : t.proofing.addToFavorites}

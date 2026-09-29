@@ -123,8 +123,21 @@ describe('publicPaths', () => {
       site({
         journalEnabled: true,
         journal: [
-          { slug: 'published', draft: false },
-          { slug: 'wip', draft: true },
+          { slug: 'published', draft: false, isProtected: false },
+          { slug: 'wip', draft: true, isProtected: false },
+        ],
+      }),
+    );
+    expect(paths).toEqual(['/', '/journal', '/journal/published']);
+  });
+
+  it('omits a password-protected journal entry, as the journal index does', () => {
+    const paths = publicPaths(
+      site({
+        journalEnabled: true,
+        journal: [
+          { slug: 'published', draft: false, isProtected: false },
+          { slug: 'private', draft: false, isProtected: true },
         ],
       }),
     );
@@ -133,7 +146,10 @@ describe('publicPaths', () => {
 
   it('omits journal entries entirely when the journal is off', () => {
     const paths = publicPaths(
-      site({ journalEnabled: false, journal: [{ slug: 'published', draft: false }] }),
+      site({
+        journalEnabled: false,
+        journal: [{ slug: 'published', draft: false, isProtected: false }],
+      }),
     );
     expect(paths).toEqual(['/']);
   });
@@ -150,12 +166,38 @@ describe('publicPaths', () => {
     expect(paths).toEqual([...new Set(paths)]);
   });
 
+  it('lists a published content page, whether or not it is in the menu (#722)', () => {
+    const paths = publicPaths(
+      site({ pages: [{ slug: 'pricing', draft: false, isProtected: false }] }),
+    );
+    expect(paths).toEqual(['/', '/pricing']);
+  });
+
+  it('leaves out a draft content page and a password-protected one', () => {
+    const paths = publicPaths(
+      site({
+        pages: [
+          { slug: 'draft', draft: true, isProtected: false },
+          { slug: 'secret', draft: false, isProtected: true },
+        ],
+      }),
+    );
+    expect(paths).toEqual(['/']);
+  });
+
+  it('lists no content page on a locked site', () => {
+    const paths = publicPaths(
+      site({ siteLocked: true, pages: [{ slug: 'pricing', draft: false, isProtected: false }] }),
+    );
+    expect(paths).toEqual([]);
+  });
+
   it('emits only absolute-looking, single-slash paths', () => {
     const paths = publicPaths(
       site({
         aboutEnabled: true,
         journalEnabled: true,
-        journal: [{ slug: 'story', draft: false }],
+        journal: [{ slug: 'story', draft: false, isProtected: false }],
         subpages: [openSubpage('travel', [{ id: 'a', slug: 'iceland' }])],
         standaloneAlbums: [{ id: 'b', slug: 'portraits' }],
       }),

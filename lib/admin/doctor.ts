@@ -24,6 +24,11 @@ export interface DoctorFinding {
    * diagnostics page can link straight to the album in the page builder.
    */
   albumIds?: string[];
+  /**
+   * The settings section (`/admin/settings/<section>`) that holds the fix, when
+   * it depends on the finding rather than on its id.
+   */
+  settingsSection?: string;
 }
 
 /** The worst level present — what the status badge should show. */
@@ -558,6 +563,53 @@ export function checkContact(
   };
 }
 
+/** Where each value checked by `validateSettingValues` is edited. */
+const SETTING_SECTIONS: Record<string, string> = {
+  url: 'seo',
+  'theme.accent': 'theme',
+  'grid.columns': 'grid',
+  'grid.gap': 'grid',
+};
+
+/** Human names for the same fields, for the finding's text. */
+const SETTING_LABELS: Record<string, string> = {
+  url: 'Site URL',
+  'theme.accent': 'accent colour',
+  'grid.columns': 'grid columns',
+  'grid.gap': 'grid gap',
+};
+
+/**
+ * Values in settings.yaml the site does not use as written — an accent that is
+ * not hex, a column count outside 1–6, a site URL that is not a full address.
+ * The resolvers fall back or clamp, so nothing breaks and nothing says so; the
+ * panel now refuses to save them, but a hand-edited file or one saved before
+ * that still holds them. Takes `validateSettingValues(settings.yaml)`.
+ */
+export function checkSettingValues(errors: Array<{ field: string }>): DoctorFinding {
+  if (errors.length === 0) {
+    return {
+      id: 'settings-values',
+      level: 'ok',
+      title: 'Settings are used as written',
+      detail: 'Site URL, accent colour and grid values in settings.yaml are all valid.',
+    };
+  }
+  const names = errors.map((e) => SETTING_LABELS[e.field] ?? e.field);
+  return {
+    id: 'settings-values',
+    level: 'warn',
+    title:
+      errors.length === 1
+        ? `The ${names[0]} setting is ignored`
+        : `${errors.length} settings are ignored`,
+    detail:
+      `settings.yaml holds a value the site cannot use for: ${names.join(', ')}. ` +
+      'It falls back to the default instead. Open the setting to see what it expects.',
+    settingsSection: SETTING_SECTIONS[errors[0].field],
+  };
+}
+
 /**
  * A site that needs an Impressum almost always needs a privacy policy too
  * (Art. 13 GDPR). Returns null while there is neither an Impressum nor a
@@ -635,5 +687,62 @@ export function checkImmichCalls(results: Array<{ endpoint: string; ok: boolean 
     level: 'ok',
     title: 'Immich answers every call Folio makes',
     detail: results.map((r) => r.endpoint).join(', '),
+  };
+}
+
+export interface PageSlugProblem {
+  slug: string;
+  /** One sentence from describeCollision(). */
+  reason: string;
+}
+
+/**
+ * Content pages (#722): a `- page:` reference in gallery.yaml whose file does
+ * not exist puts nothing in the menu, and a page whose slug is already taken
+ * is shadowed by the subpage or album — or, for a built-in route, never
+ * reached at all. Returns null while there are no pages and no references.
+ */
+export function checkContentPages(p: {
+  /** Slugs referenced from gallery.yaml. */
+  menuRefs: string[];
+  /** Slugs of the files in content/pages/. */
+  pages: string[];
+  collisions: PageSlugProblem[];
+}): DoctorFinding | null {
+  if (!p.menuRefs.length && !p.pages.length) return null;
+  const existing = new Set(p.pages);
+  const missing = p.menuRefs.filter((slug) => !existing.has(slug));
+  const missingList = missing.map((s) => `"${s}"`).join(', ');
+
+  if (p.collisions.length) {
+    const n = p.collisions.length;
+    return {
+      id: 'content-pages',
+      level: 'error',
+      title: `${n} content ${n === 1 ? 'page has' : 'pages have'} a slug that is already taken`,
+      detail:
+        p.collisions.map((c) => c.reason).join(' ') +
+        ' Rename the page in Pages so visitors can reach it.' +
+        (missing.length ? ` The menu also lists missing pages: ${missingList}.` : ''),
+    };
+  }
+
+  if (missing.length) {
+    return {
+      id: 'content-pages',
+      level: 'warn',
+      title: `The menu lists ${missing.length} missing ${missing.length === 1 ? 'page' : 'pages'}`,
+      detail:
+        `gallery.yaml references ${missingList}, but content/pages/ has no such file. ` +
+        'The menu skips the entry; remove the reference or create the page.',
+    };
+  }
+
+  const n = p.pages.length;
+  return {
+    id: 'content-pages',
+    level: 'ok',
+    title: `${n} content ${n === 1 ? 'page' : 'pages'}, every slug free`,
+    detail: `${p.menuRefs.length} of them in the menu.`,
   };
 }

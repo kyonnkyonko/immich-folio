@@ -20,15 +20,16 @@
   padding: 0.75rem;
 }
 
+/* A warning, so --admin-warning: the accent is red under studio-modern. */
 .order-editor-notice {
   margin: 0 0 0.75rem;
   padding: 0.5rem 0.7rem;
   border-radius: 6px;
   font-size: 0.78rem;
   line-height: 1.4;
-  color: var(--admin-accent);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  background: rgba(245, 158, 11, 0.05);
+  color: var(--admin-warning);
+  border: 1px solid color-mix(in srgb, var(--admin-warning) 30%, transparent);
+  background: color-mix(in srgb, var(--admin-warning) 5%, transparent);
 }
 
 .order-editor-section + .order-editor-section {
@@ -91,13 +92,25 @@
   cursor: grabbing;
 }
 
+/* A button, so the tail can be pinned from the keyboard. */
 .order-tile-unpinned {
+  display: block;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
   opacity: 0.55;
 }
 
-.order-tile-unpinned:hover {
+.order-tile-unpinned:hover,
+.order-tile-unpinned:focus-visible {
   opacity: 1;
   border-color: var(--admin-border);
+}
+
+.order-tile:focus-visible {
+  outline: var(--admin-focus-ring);
+  outline-offset: 2px;
 }
 
 .order-tile-index {
@@ -110,7 +123,7 @@
   font-size: 0.68rem;
   font-weight: 700;
   text-align: center;
-  color: #000;
+  color: var(--admin-on-accent);
   background: var(--admin-accent);
 }
 

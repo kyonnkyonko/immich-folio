@@ -1,18 +1,32 @@
 import { NextResponse } from 'next/server';
 import { withAdmin } from '@/lib/admin/withAdmin';
 import { revalidatePath } from 'next/cache';
-import { readGalleryYaml, writeGalleryYaml } from '@/lib/admin/yaml-service';
+import {
+  readGalleryYaml,
+  readGalleryYamlVersioned,
+  writeGalleryYaml,
+} from '@/lib/admin/yaml-service';
+import {
+  VersionConflictError,
+  baseVersionFrom,
+  conflictResponse,
+  etag,
+} from '@/lib/admin/contentVersion';
 import { invalidateConfigCache, deriveGallery } from '@/lib/config';
-import { immich } from '@/lib/immich';
 import type { GalleryYaml } from '@/lib/config/schema';
 import { hashPasswordKeys } from '@/lib/admin/passwordHashing';
+import { listPageSlugsSync } from '@/lib/admin/pages-service';
 
 const PASSWORD_KEY = new Set(['password']);
 
 /** GET: Read current gallery.yaml config. */
 export const GET = withAdmin(async () => {
-  const gallery = await readGalleryYaml();
-  return NextResponse.json({ gallery: gallery || { hero: [], albums: [], subpages: [] } });
+  const { data: gallery, version } = await readGalleryYamlVersioned();
+  // `version` goes back in If-Match on save (#601).
+  return NextResponse.json(
+    { gallery: gallery || { hero: [], albums: [], subpages: [] }, version },
+    { headers: { ETag: etag(version) } },
+  );
 });
 
 /** PUT: Write gallery.yaml config. */
@@ -39,7 +53,17 @@ export const PUT = withAdmin(async (request: Request) => {
   // validating before the write rather than rolling back after — a rollback
   // leaves a window in which other requests read the broken config.
   try {
-    deriveGallery(gallery);
+    const derived = deriveGallery(gallery);
+    // A subpage renamed onto a content page's slug would shadow the page
+    // (#722). The page side of the same rule is enforced where pages save.
+    const pageSlugs = new Set(listPageSlugsSync());
+    const clash = derived.subpages.find((sp) => pageSlugs.has(sp.slug));
+    if (clash) {
+      throw new Error(
+        `Subpage "${clash.name}" would take /${clash.slug}, which is already a content page. ` +
+          `Rename one of them.`,
+      );
+    }
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'Invalid gallery structure';
     console.warn('[Admin] Rejected an unloadable gallery.yaml:', reason);
@@ -53,9 +77,12 @@ export const PUT = withAdmin(async (request: Request) => {
       PASSWORD_KEY,
       await readGalleryYaml().catch(() => null),
     );
-    await writeGalleryYaml(toWrite);
+    const version = await writeGalleryYaml(toWrite, baseVersionFrom(request));
     invalidateConfigCache();
-    immich.invalidateAll();
+    // No immich.invalidateAll(): the Immich cache holds Immich's data only, and
+    // the gallery.yaml side (allowlist, titles, order) is applied per request
+    // from the new config. Clearing it made the next visitor refetch every
+    // album although nothing in Immich had changed.
     // Revalidate all pages so the homepage picks up new hero images immediately
     revalidatePath('/', 'layout');
     revalidatePath('/[...path]', 'page');
@@ -64,8 +91,10 @@ export const PUT = withAdmin(async (request: Request) => {
       message: 'Saved successfully. Backup of previous version created.',
       // What was written, passwords hashed, so the editor can take it over.
       gallery: toWrite,
+      version,
     });
   } catch (err) {
+    if (err instanceof VersionConflictError) return conflictResponse(err.currentVersion);
     console.error('[Admin] Failed to write gallery.yaml:', err);
     return NextResponse.json({ error: 'Failed to save gallery config' }, { status: 500 });
   }

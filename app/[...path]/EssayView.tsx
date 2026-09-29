@@ -2,17 +2,32 @@
 
 import { useState, useMemo } from 'react';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
 import { Lightbox, type LightboxWatermark } from '@/components/Lightbox';
-import { ProofingProvider, useProofing } from '@/components/ProofingContext';
-import { ProofingModal } from '@/components/ProofingModal';
+import { useProofing } from '@/components/useProofing';
+import { ProofingProvider, ProofingModal } from '@/components/ProofingLazy';
 import { FadeIn } from '@/components/FadeIn';
-import { LeafletMap, escapeHtml } from '@/components/LeafletMap';
+import { escapeHtml } from '@/lib/escapeHtml';
 import type { ParsedEssay, EssayBlock } from '@/lib/essay';
 import { renderInlineMarkdown } from '@/lib/essay';
 import { essayPhotoSequence } from '@/lib/essaySequence';
 import type { PhotoItem } from './PhotoGrid';
 import './essay.css';
 import { useDictionary } from '@/components/I18nProvider';
+import { formatJournalDate } from '@/lib/journalDate';
+
+/**
+ * The map block is the only thing in an essay that needs Leaflet, and most
+ * essays have none. Imported statically, LeafletMap put its wrapper and
+ * Leaflet's stylesheet (render-blocking CSS) on every album, subpage and
+ * journal page. The map only ever drew on the client — Leaflet itself was
+ * already imported inside an effect — so the server renders the same empty
+ * container it rendered before, and the wrapper arrives with the map.
+ */
+const LeafletMap = dynamic(() => import('@/components/LeafletMap').then((m) => m.LeafletMap), {
+  ssr: false,
+  loading: () => <div className="essay-map" />,
+});
 
 interface EssayViewProps {
   essay: ParsedEssay;
@@ -28,6 +43,8 @@ interface EssayViewProps {
   proofing?: boolean;
   /** Offer the "send by email" button in the proofing modal. */
   allowMailto?: boolean;
+  /** `encodeEmail()` of the proofing recipient, when one is configured (#736). */
+  encodedMailto?: string;
 }
 
 function EssayViewContent({
@@ -389,6 +406,9 @@ function EssayViewContent({
     }
   };
 
+  // The story's photos that are selected, not the whole stored set (see PhotoGrid).
+  const selectedCount = proofing ? proofing.getSelectedTokens().length : 0;
+
   return (
     <div className="essay-container">
       <header className="essay-header">
@@ -396,7 +416,9 @@ function EssayViewContent({
         {displaySubtitle && <p className="essay-header__subtitle">{displaySubtitle}</p>}
         {(essay.frontmatter.author || essay.frontmatter.date) && (
           <div className="essay-header__meta">
-            {[essay.frontmatter.author, essay.frontmatter.date].filter(Boolean).join(' • ')}
+            {[essay.frontmatter.author, formatJournalDate(essay.frontmatter.date, t.dateLocale)]
+              .filter(Boolean)
+              .join(' • ')}
           </div>
         )}
       </header>
@@ -429,9 +451,9 @@ function EssayViewContent({
         </figure>
       )}
 
-      <main>{essay.blocks.map(renderBlock)}</main>
+      <div>{essay.blocks.map(renderBlock)}</div>
 
-      {proofing && proofing.favorites.size > 0 && (
+      {proofing && selectedCount > 0 && (
         <div
           className="proofing-sticky-bar"
           style={{
@@ -454,7 +476,7 @@ function EssayViewContent({
           {/* A count, not the album grid's filter toggle: a story's layout is
               authored, so there is nothing for "show favourites" to narrow. */}
           <span style={{ fontSize: '0.85rem', fontWeight: 500, padding: '6px 4px' }}>
-            {t.proofing.selected(proofing.favorites.size)}
+            {t.proofing.selected(selectedCount)}
           </span>
           <button
             type="button"
@@ -513,6 +535,7 @@ export function EssayView(props: EssayViewProps) {
       // default key with every album (and story) on the site.
       albumName={props.title || props.essay.frontmatter.title}
       allowMailto={props.allowMailto ?? true}
+      encodedMailto={props.encodedMailto}
     >
       <EssayViewContent {...props} />
     </ProofingProvider>

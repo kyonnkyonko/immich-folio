@@ -32,12 +32,14 @@ import { GET, POST } from '../route';
 import { getConfig, getConfigOrNull } from '@/lib/config';
 import { decodeAssetId } from '@/lib/tokens';
 import { immich } from '@/lib/immich';
+import { getClientIp } from '@/lib/rate-limit';
 
 const mockConfig = getConfig as unknown as ReturnType<typeof vi.fn>;
 const mockConfigOrNull = getConfigOrNull as unknown as ReturnType<typeof vi.fn>;
 const mockDecode = decodeAssetId as unknown as ReturnType<typeof vi.fn>;
 const mockGetAlbum = immich.getAlbum as unknown as ReturnType<typeof vi.fn>;
 const mockStream = immich.streamAsset as unknown as ReturnType<typeof vi.fn>;
+const mockClientIp = getClientIp as unknown as ReturnType<typeof vi.fn>;
 
 const ALBUM = {
   id: 'album-uuid',
@@ -269,6 +271,75 @@ describe('refusals', () => {
     expect(html).not.toContain('evil.example');
   });
 
+  /**
+   * Next rebuilds `nextUrl` from its own bind address, so behind
+   * `next start -H 127.0.0.1` or a reverse proxy it reads `localhost` while
+   * the visitor's Referer names the host they typed. Comparing against
+   * `nextUrl.origin` sent every visitor home.
+   */
+  it('follows the Referer when Next knows itself as localhost but was asked as another host', async () => {
+    mockConfig.mockReturnValue({ albums: ['album-uuid'], albumDownloads: {} });
+    const req = new NextRequest('http://localhost:3598/api/download/album-token/archive', {
+      headers: {
+        Accept: 'text/html',
+        Host: '127.0.0.1:3598',
+        Referer: 'http://127.0.0.1:3598/polen/krakau',
+      },
+    });
+    const html = await (await GET(req, params)).text();
+    expect(html).toContain('href="/polen/krakau"');
+  });
+
+  it('does not follow a Referer whose path would read as a host', async () => {
+    mockConfig.mockReturnValue({ albums: ['album-uuid'], albumDownloads: {} });
+    const html = await (await GET(browsesHtml('http://localhost//evil.example/x'), params)).text();
+    expect(html).toContain('href="/"');
+    expect(html).not.toContain('evil.example');
+  });
+
+  it('ignores X-Forwarded-Host unless a proxy is trusted', async () => {
+    mockConfig.mockReturnValue({ albums: ['album-uuid'], albumDownloads: {} });
+    const req = new NextRequest('http://localhost/api/download/album-token/archive', {
+      headers: {
+        Accept: 'text/html',
+        'X-Forwarded-Host': 'evil.example',
+        Referer: 'https://evil.example/phish',
+      },
+    });
+    const html = await (await GET(req, params)).text();
+    expect(html).toContain('href="/"');
+  });
+
+  /**
+   * The page used to be browser-default: white, blue link, system font — in
+   * the middle of a dark gallery. It now carries the site's colour mode and
+   * accent in an inline stylesheet, and a policy that allows nothing else.
+   */
+  it("wears the site's colour mode and accent, under a policy that allows only its style", async () => {
+    mockConfig.mockReturnValue({ albums: ['album-uuid'], albumDownloads: {} });
+    mockConfigOrNull.mockReturnValue({
+      lang: 'de',
+      colorMode: 'dark',
+      theme: { preset: 'studio-modern', accent: '#e60012' },
+    });
+    const res = await GET(browsesHtml(), params);
+    const html = await res.text();
+    expect(html).toContain('<style>');
+    expect(html).toContain('color-scheme:dark;--bg:#121212');
+    expect(html).toContain('--accent:#e60012');
+    expect(html).not.toContain('style="');
+    expect(res.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+    );
+  });
+
+  it("follows the visitor's OS when the site's mode is auto", async () => {
+    mockConfig.mockReturnValue({ albums: ['album-uuid'], albumDownloads: {} });
+    mockConfigOrNull.mockReturnValue({ colorMode: 'auto' });
+    const html = await (await GET(browsesHtml(), params)).text();
+    expect(html).toContain('@media (prefers-color-scheme: light){:root{color-scheme:light;');
+  });
+
   it('keeps JSON for an API caller', async () => {
     mockConfig.mockReturnValue({ albums: ['album-uuid'], albumDownloads: {} });
     const res = await GET(getReq(), params);
@@ -309,5 +380,53 @@ describe('abort', () => {
     await vi.waitFor(() => expect(cancelled).toHaveBeenCalled());
     // The loop stopped rather than moving on to the next original.
     expect(mockStream).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The album archive and the proofing archive draw on one pool of slots per
+ * client, so holding two album ZIPs open closes the proofing route as well.
+ */
+describe('concurrent archives', () => {
+  it('shares one per-client cap with the proofing archive route', async () => {
+    mockClientIp.mockReturnValue('198.51.100.7');
+    // Originals that never finish, so both archives stay open.
+    mockStream.mockImplementation(() =>
+      Promise.resolve({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('first-chunk'));
+          },
+        }),
+        contentType: 'image/jpeg',
+        contentLength: null,
+      }),
+    );
+
+    const first = await GET(getReq(), params);
+    const second = await POST(postReq(['asset-token-1']), params);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const third = await GET(getReq(), params);
+    expect(third.status).toBe(429);
+    expect(third.headers.get('retry-after')).toBeTruthy();
+
+    const { GET: proofArchive } = await import('@/app/api/proof/[token]/archive/route');
+    const proof = await proofArchive(
+      new NextRequest('http://localhost/api/proof/tok/archive?scope=album'),
+      { params: Promise.resolve({ token: 'tok' }) },
+    );
+    expect(proof.status).toBe(429);
+
+    // Closing one download frees its slot for the next.
+    await first.body!.cancel();
+    await vi.waitFor(async () => {
+      const again = await GET(getReq(), params);
+      expect(again.status).toBe(200);
+      await again.body!.cancel();
+    });
+    await second.body!.cancel();
+    mockClientIp.mockReturnValue('127.0.0.1');
   });
 });

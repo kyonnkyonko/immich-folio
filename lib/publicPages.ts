@@ -29,6 +29,15 @@ export interface PublicSubpage {
 export interface PublicJournalEntry {
   slug: string;
   draft: boolean;
+  /** The entry carries a password of its own. */
+  isProtected: boolean;
+}
+
+export interface PublicContentPage {
+  slug: string;
+  draft: boolean;
+  /** The page carries a password of its own. */
+  isProtected: boolean;
 }
 
 export interface SiteShape {
@@ -38,6 +47,8 @@ export interface SiteShape {
   /** Albums that are not part of any subpage. */
   standaloneAlbums: PublicAlbum[];
   journal: PublicJournalEntry[];
+  /** Content pages (#722), in or out of the menu — both are public URLs. */
+  pages?: PublicContentPage[];
   /** Whether an album carries its own password. Keyed by Immich album id. */
   isAlbumProtected: (albumId: string) => boolean;
   aboutEnabled: boolean;
@@ -81,11 +92,19 @@ export function publicPaths(site: SiteShape): string[] {
     paths.push(`/${album.slug}`);
   }
 
+  for (const page of site.pages ?? []) {
+    // A page outside the menu is still a public page; a draft or a locked
+    // one is not, and its title would travel with the URL.
+    if (page.draft || page.isProtected) continue;
+    paths.push(`/${page.slug}`);
+  }
+
   if (site.journalEnabled) {
     for (const entry of site.journal) {
       // Drafts stay visible to the logged-in admin and absent for everyone
-      // else; a listing is "everyone else".
-      if (entry.draft) continue;
+      // else; a listing is "everyone else". A locked entry is left out for
+      // the reason /journal hides it: its URL leads to a gate that names it.
+      if (entry.draft || entry.isProtected) continue;
       paths.push(`/journal/${entry.slug}`);
     }
   }
