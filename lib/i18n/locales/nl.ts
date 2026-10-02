@@ -98,6 +98,7 @@ export const nl: Dictionary = {
       seconds
         ? `Te veel pogingen. Probeer het over ${seconds} ${seconds === 1 ? 'seconde' : 'seconden'} opnieuw.`
         : 'Te veel pogingen. Probeer het later opnieuw.',
+    legalNavAria: 'Juridische informatie',
   },
 
   about: {
@@ -132,7 +133,6 @@ export const nl: Dictionary = {
     title: 'Journal',
     kicker: 'Verhalen & essays',
     subtitle: 'Fotoessays, beeldverhalen en veldnotities.',
-    description: 'Fotoessays, reisverhalen en een kijkje achter de schermen.',
     entryDescription: 'Journalverhaal',
     empty: 'Er zijn nog geen verhalen gepubliceerd.',
     readStory: 'Lees het verhaal →',
@@ -187,6 +187,14 @@ export const nl: Dictionary = {
     shortcutCopyLink: 'Link naar deze foto kopiëren',
     shortcutList: 'Deze lijst',
     shortcutClose: 'De viewer sluiten',
+    zoomIn: 'Inzoomen op volledige resolutie',
+    zoomInTitle: 'Inzoomen op volledige resolutie (+ of dubbelklik)',
+    zoomOut: 'Foto aan het scherm aanpassen',
+    zoomOutTitle: 'Aan scherm aanpassen (0 of Esc)',
+    zoomLoading: 'Volledige resolutie laden…',
+    zoomUnavailable: 'Voor deze foto is geen volledige resolutie beschikbaar.',
+    shortcutZoom: 'In- / uitzoomen',
+    shortcutZoomReset: 'Aan scherm aanpassen',
   },
 
   proofing: {

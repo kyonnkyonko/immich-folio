@@ -14,6 +14,18 @@ import { cdnOrigin } from '@/lib/cdn';
 const GATE_PATH = '/gate';
 
 /**
+ * Pages a locked site still serves: the legal notice, the privacy policy and
+ * the contact form. The gate itself is public, and a German Impressum has to
+ * be reachable directly, not after a password, together with its second
+ * contact channel, which is often the contact form it links. None of the three
+ * carries an album name or an asset token, and the root layout drops the
+ * header and footer for a visitor who has not unlocked the site. A page that
+ * is switched off still answers 404 through isKnownMissing() below, so a
+ * disabled contact form is a 404 here, not the gate.
+ */
+export const UNGATED_PAGES: ReadonlySet<string> = new Set(['/impressum', '/privacy', '/contact']);
+
+/**
  * Site-wide password gate.
  *
  * This has to happen here rather than in the root layout. A layout that swaps
@@ -32,6 +44,7 @@ function siteGate(request: NextRequest): NextResponse | null {
   // /install is the wizard a fresh deployment needs before it can have a
   // password at all. Locking either would be locking out the operator.
   if (isAdminPath(pathname) || isInstallPath(pathname) || pathname === GATE_PATH) return null;
+  if (UNGATED_PAGES.has(pathname)) return null;
 
   // A config that cannot be parsed makes getConfig() throw, and it throws in
   // here — before app/layout.tsx gets to call getConfigOrNull() and render the
@@ -85,12 +98,17 @@ export const TOP_LEVEL_ROUTES: ReadonlySet<string> = new Set([
 /**
  * Pages that are known not to exist before anything renders.
  *
- * app/loading.tsx makes every page stream, and a streamed response has sent
- * its 200 before the page gets to call notFound(). Next then marks the page
- * noindex, which keeps it out of search results, but the status stays 200.
- * For the fixed routes whose existence depends only on settings.yaml or a file
- * in content/journal/, the answer is known here, before streaming starts, so
- * they can get a real 404. Album and subpage slugs need Immich and stay soft.
+ * A page inside a loading.tsx boundary streams, and a streamed response has
+ * sent its 200 before the page gets to call notFound(). Next then marks the
+ * page noindex, which keeps it out of search results, but the status stays
+ * 200. For the fixed routes whose existence depends only on settings.yaml or a
+ * file in content/journal/, the answer is known here, before streaming starts,
+ * so they get a real 404 whatever boundaries sit above them.
+ *
+ * Album and subpage slugs need Immich and are not decided here. The catch-all
+ * page decides them itself before it streams (app/[...path]/routeExists.ts),
+ * which is why app/ has no loading.tsx of its own: the home page's skeleton
+ * lives in the app/(home) route group.
  *
  * The same holds for any path deeper than two segments that lands in the
  * catch-all: app/[...path] only serves `/<slug>` and `/<subpage>/<album>`, and

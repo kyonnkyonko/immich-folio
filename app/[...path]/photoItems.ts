@@ -16,7 +16,9 @@ import {
   exifUrl,
   imageUrl,
   videoUrl,
+  zoomUrl,
 } from '@/lib/urls';
+import { zoomDimensions, zoomSourceFor } from '@/lib/zoomSource';
 import type { PhotoItem } from './PhotoGrid';
 
 /**
@@ -32,6 +34,11 @@ export function toPhotoItems(
   showCaption: boolean,
   /** The album offering downloads, or undefined when it does not. */
   downloadAlbumId?: string,
+  /**
+   * The album whose page offers lightbox zoom, or undefined when zoom resolves
+   * off for it (#467). Each photo still has to be zoomable on its own.
+   */
+  zoomAlbumId?: string,
 ): PhotoItem[] {
   return assets
     .filter((a) => a.type === 'IMAGE' || a.type === 'VIDEO')
@@ -40,17 +47,25 @@ export function toPhotoItems(
       const exif = showExif && a.type === 'IMAGE' ? assetExifSummary(a) : undefined;
       const caption = assetCaption(a, showCaption);
       const isVideo = a.type === 'VIDEO';
+      const zoomSize = zoomAlbumId && zoomSourceFor(a) ? zoomDimensions(a) : undefined;
       return {
         id: encodeAssetId(a.id),
         type: isVideo ? 'video' : 'image',
-        thumbUrl: imageUrl(a.id, 'preview'),
-        previewUrl: imageUrl(a.id, 'preview'),
+        thumbUrl: imageUrl(a, 'preview'),
+        previewUrl: imageUrl(a, 'preview'),
         ...(isVideo ? { videoUrl: videoUrl(a.id) } : {}),
         exifUrl: exifUrl(a.id),
         ...(ph ? { blurDataURL: ph.blurDataURL, dominantColor: ph.dominantColor } : {}),
         ...(exif ?? {}),
         ...(caption ? { caption } : {}),
         ...(downloadAlbumId ? { downloadUrl: downloadUrl(downloadAlbumId, a.id) } : {}),
+        ...(zoomAlbumId && zoomSize
+          ? {
+              zoomUrl: zoomUrl(zoomAlbumId, a.id),
+              zoomWidth: zoomSize.width,
+              zoomHeight: zoomSize.height,
+            }
+          : {}),
         aspectRatio: assetAspectRatio(a),
       };
     });

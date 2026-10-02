@@ -44,6 +44,7 @@ describe('proxy', () => {
   beforeEach(() => {
     mockUnlocked.mockReturnValue(true);
     mockCdnOrigin.mockReturnValue(null);
+    mockConfig.mockReturnValue(null);
   });
 
   describe('CDN mode', () => {
@@ -256,6 +257,44 @@ describe('proxy', () => {
       expect(rewrittenTo(run('/install'))).toBeNull();
     });
 
+    it('serves the legal notice and the privacy policy to a locked site', () => {
+      mockUnlocked.mockReturnValue(false);
+      mockConfig.mockReturnValue({
+        contact: { enabled: true },
+        legal: { enabled: true },
+        map: true,
+        privacy: { enabled: true },
+      });
+      // The gate page is public and links both; an Impressum behind a password
+      // is not "unmittelbar erreichbar". The pages still get their CSP.
+      // The contact form goes with them: the Impressum links it as its second
+      // contact channel.
+      for (const pathname of ['/impressum', '/privacy', '/contact']) {
+        const res = run(pathname);
+        expect(rewrittenTo(res)).toBeNull();
+        expect(res.headers.get('Content-Security-Policy')).toBeTruthy();
+      }
+      // Exact paths only: nothing below or beside them slips through.
+      for (const pathname of ['/', '/contact/x', '/impressum/x', '/privacy-trip', '/japan']) {
+        expect(rewrittenTo(run(pathname))).toContain('/gate');
+      }
+    });
+
+    it('still answers 404 for a legal or contact page that is switched off on a locked site', () => {
+      mockUnlocked.mockReturnValue(false);
+      mockConfig.mockReturnValue({
+        contact: { enabled: false },
+        legal: { enabled: false },
+        map: false,
+        privacy: { enabled: false },
+      });
+      for (const pathname of ['/impressum', '/privacy', '/contact']) {
+        const res = run(pathname);
+        expect(rewrittenTo(res)).toBeNull();
+        expect(res.status).toBe(404);
+      }
+    });
+
     it('does not rewrite the gate to itself', () => {
       mockUnlocked.mockReturnValue(false);
       expect(rewrittenTo(run('/gate'))).toBeNull();
@@ -346,11 +385,20 @@ describe('isKnownMissing', () => {
             ? hasRoute(path.join(dir, entry.name))
             : /^(page|route)\.(tsx?|jsx?)$/.test(entry.name),
         );
-    const routeDirs = fs
-      .readdirSync(appDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && entry.name !== '[...path]')
-      .filter((entry) => hasRoute(path.join(appDir, entry.name)))
-      .map((entry) => entry.name);
+    // A route group such as app/(home) adds no URL segment: its children are
+    // top-level routes themselves.
+    const topLevelDirs = (dir: string): string[] =>
+      fs
+        .readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && entry.name !== '[...path]')
+        .flatMap((entry) =>
+          /^\(.*\)$/.test(entry.name)
+            ? topLevelDirs(path.join(dir, entry.name))
+            : hasRoute(path.join(dir, entry.name))
+              ? [entry.name]
+              : [],
+        );
+    const routeDirs = topLevelDirs(appDir);
     expect(routeDirs.length).toBeGreaterThan(5);
     for (const name of routeDirs) expect(TOP_LEVEL_ROUTES.has(name), name).toBe(true);
   });

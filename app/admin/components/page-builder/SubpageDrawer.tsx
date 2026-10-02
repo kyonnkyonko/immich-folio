@@ -23,6 +23,7 @@ import {
 import AlbumCard, { SortableAlbumCard } from './AlbumCard';
 import SubpagePreview from './SubpagePreview';
 import PasswordField from '../fields/PasswordField';
+import ZoomOverrideField from '../fields/ZoomOverrideField';
 import {
   normalizeSubpageGrid,
   type ActiveEditAlbumAddress,
@@ -120,20 +121,20 @@ export default function SubpageDrawer({
           <h3 className="subpage-drawer-title">{sp.title || sp.name || 'Untitled Page'}</h3>
         </div>
         <div className="subpage-drawer-header-actions">
-          <div className="segmented-control" style={{ padding: '2px' }}>
+          <div className="segmented-control segmented-control--sm" role="group" aria-label="View">
             <button
               type="button"
               className={`segment-btn ${drawerMode === 'edit' ? 'active' : ''}`}
+              aria-pressed={drawerMode === 'edit'}
               onClick={() => onDrawerModeChange('edit')}
-              style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
             >
               <IconPencil size={14} /> Edit
             </button>
             <button
               type="button"
               className={`segment-btn ${drawerMode === 'preview' ? 'active' : ''}`}
+              aria-pressed={drawerMode === 'preview'}
               onClick={() => onDrawerModeChange('preview')}
-              style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
             >
               <IconSearch size={14} /> Live Preview
             </button>
@@ -189,7 +190,9 @@ export default function SubpageDrawer({
                       onChange={(e) =>
                         updateSubpage(spIndex, { title: e.target.value || undefined })
                       }
-                      placeholder="Display title (defaults to name)"
+                      // Short enough for the half-width column at any size; the
+                      // old "Display title (defaults to name)" was cut off (A-18).
+                      placeholder="Same as page name"
                     />
                   </div>
                   <div className="admin-field">
@@ -342,6 +345,19 @@ export default function SubpageDrawer({
                     <option value="essay">Photo Essay Mode (Storytelling Editor)</option>
                   </select>
                 </div>
+
+                {/* Zoom belongs to the album viewer; a photo essay has none. */}
+                {sp.grid?.layout !== 'essay' && sp.essayText == null && !sp.essayFile && (
+                  <div style={{ marginTop: '1rem' }}>
+                    <ZoomOverrideField
+                      id="subpage-zoom"
+                      value={sp.zoom}
+                      onChange={(zoom) => updateSubpage(spIndex, { zoom })}
+                      inheritLabel="Inherit from site settings"
+                      hint="Applies to every album on this page that does not set its own. Settings › General has the site-wide switch."
+                    />
+                  </div>
+                )}
 
                 {/* Album cover grid — hidden in essay mode, which
                                   renders a story instead of a cover grid. The

@@ -20,6 +20,9 @@ import { useProofing } from '@/components/useProofing';
 import { ProofingProvider, ProofingModal, ProofSessionControls } from '@/components/ProofingLazy';
 import { useDictionary } from '@/components/I18nProvider';
 import { parsePhotoHash, parsePhotoQuery, buildPhotoQuery } from '@/lib/photoHash';
+import { justifiedTileStyle } from '@/lib/justifiedRow';
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
 
 export interface PhotoItem {
   id: string;
@@ -40,6 +43,14 @@ export interface PhotoItem {
   caption?: string;
   /** Present only when the surrounding album offers its originals (#475). */
   downloadUrl?: string;
+  /**
+   * The full-resolution image for the lightbox zoom, fetched only when the
+   * visitor zooms (#467). Present only where zoom resolves on and the photo
+   * has a zoomable source; the size is the image's pixel size, upright.
+   */
+  zoomUrl?: string;
+  zoomWidth?: number;
+  zoomHeight?: number;
 }
 
 interface PhotoGridProps {
@@ -114,11 +125,25 @@ function PhotoGridInner({
       setLightboxIndex(byToken);
       return;
     }
+    // A `photo` that names no photo in this album — mistyped, truncated by a
+    // messenger, or a position like `?photo=5` (that was never a format) —
+    // opens nothing, so it should not stay in the address bar to be copied
+    // and shared on. Checked against the whole album, not `displayedAssets`:
+    // a real photo that the "selected only" filter hides is still a valid link.
+    if (token !== null && !assets.some((a) => a.id === token)) {
+      window.history.replaceState(
+        null,
+        '',
+        window.location.pathname +
+          buildPhotoQuery(window.location.search, null) +
+          window.location.hash,
+      );
+    }
     const idx = parsePhotoHash(window.location.hash);
     if (idx !== null && idx < displayedAssets.length) {
       setLightboxIndex(idx);
     }
-  }, [displayedAssets]);
+  }, [assets, displayedAssets]);
 
   // ── Sync the URL's `photo` param when the lightbox state changes ──
   useEffect(() => {
@@ -211,25 +236,31 @@ function PhotoGridInner({
 
   // Keyboard navigation and the scroll lock live in <Lightbox/>.
 
+  // A work's catalogue number on the wall label is its place in the album,
+  // not in the current view: the "selected only" filter must not renumber it.
+  const albumPosition = useMemo(() => new Map(assets.map((a, i) => [a.id, i + 1])), [assets]);
+
   const gridItems = useMemo(() => {
     return displayedAssets.map((asset, index) => {
       const isFav = proofing ? proofing.isFavorite(asset.id) : false;
+      // A focal length alone is not a label, as before.
+      const exifLine =
+        asset.camera || asset.lens
+          ? [asset.camera, asset.lens, asset.focalLength].filter(Boolean).join(' · ')
+          : '';
 
       // Justified rows: the flex sizing must sit on the outermost grid child,
       // which is the FadeIn wrapper — not the .photo-grid__item inside it.
-      // Aspect ratio drives both grow factor and basis; ~3:2 fallback for
-      // assets without dimensions (e.g. videos) keeps the row math sane.
-      const justifiedAr = asset.aspectRatio || 1.5;
       const justifiedStyle: React.CSSProperties | undefined =
-        layout === 'justified'
-          ? {
-              flexGrow: justifiedAr,
-              flexBasis: `calc(var(--grid-row-height, 300px) * ${justifiedAr})`,
-            }
-          : undefined;
+        layout === 'justified' ? justifiedTileStyle(asset.aspectRatio) : undefined;
 
       return (
-        <FadeIn key={asset.id} delay={index < 12 ? index * 50 : 0} style={justifiedStyle}>
+        <FadeIn
+          key={asset.id}
+          as="figure"
+          delay={index < 12 ? index * 50 : 0}
+          style={justifiedStyle}
+        >
           <div
             className={`photo-grid__item${
               layout === 'showcase' && index === 0 ? ' photo-grid__featured' : ''
@@ -247,23 +278,30 @@ function PhotoGridInner({
             aria-label={t.lightbox.openPhoto(index + 1)}
             aria-haspopup="dialog"
             style={{
-              ...(asset.dominantColor ? { backgroundColor: asset.dominantColor } : {}),
               ...((layout === 'masonry' || layout === 'showcase') && asset.aspectRatio
                 ? { aspectRatio: `${asset.aspectRatio}` }
                 : {}),
               position: 'relative',
             }}
           >
-            <Image
-              src={asset.thumbUrl}
-              alt={asset.caption ?? ''}
-              fill
-              sizes="(max-width: 600px) 50vw, (max-width: 1000px) 33vw, 25vw"
-              loading={index < 6 ? 'eager' : 'lazy'}
-              {...(asset.blurDataURL
-                ? { placeholder: 'blur' as const, blurDataURL: asset.blurDataURL }
-                : {})}
-            />
+            {/* The photo's own box. Without a frame it covers the whole tile;
+                under passepartout globals.css insets it by the mat, so `fill`
+                and the placeholder colour stay on the photo, not on the mat. */}
+            <div
+              className="photo-grid__media"
+              style={asset.dominantColor ? { backgroundColor: asset.dominantColor } : undefined}
+            >
+              <Image
+                src={asset.thumbUrl}
+                alt={asset.caption ?? ''}
+                fill
+                sizes="(max-width: 600px) 50vw, (max-width: 1000px) 33vw, 25vw"
+                loading={index < 6 ? 'eager' : 'lazy'}
+                {...(asset.blurDataURL
+                  ? { placeholder: 'blur' as const, blurDataURL: asset.blurDataURL }
+                  : {})}
+              />
+            </div>
 
             {proofing && (
               <button
@@ -288,7 +326,7 @@ function PhotoGridInner({
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  color: isFav ? '#ff4d4f' : 'rgba(255,255,255,0.85)',
+                  color: isFav ? 'var(--lightbox-fav)' : 'rgba(255,255,255,0.85)',
                   filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))',
                   padding: 0,
                 }}
@@ -314,16 +352,35 @@ function PhotoGridInner({
                 </svg>
               </div>
             )}
-            {(asset.camera || asset.lens) && (
+            {exifLine && (
               <div className="photo-grid__item-exif" aria-hidden="true">
-                {[asset.camera, asset.lens, asset.focalLength].filter(Boolean).join(' · ')}
+                {exifLine}
               </div>
             )}
           </div>
+
+          {/* The wall label under the photo, outside the tile and its clip.
+              globals.css hides it; a preset that hangs its photos as works
+              (kunsthalle) shows it. It carries only what the site already
+              publishes for the photo: its number, the caption that is the
+              image's alt text (absent unless the `caption` EXIF group is on),
+              and the EXIF line. The number and EXIF repeat the tile's own
+              label and the lightbox, so they stay out of the figure's name. */}
+          <figcaption className="photo-grid__label">
+            <span className="photo-grid__label-no" aria-hidden="true">
+              {pad2(albumPosition.get(asset.id) ?? index + 1)}
+            </span>
+            {asset.caption && <span className="photo-grid__label-title">{asset.caption}</span>}
+            {exifLine && (
+              <span className="photo-grid__label-exif" aria-hidden="true">
+                {exifLine}
+              </span>
+            )}
+          </figcaption>
         </FadeIn>
       );
     });
-  }, [displayedAssets, layout, openLightbox, proofing, t]);
+  }, [albumPosition, displayedAssets, layout, openLightbox, proofing, t]);
 
   // Photos of this album that are selected. Not `favorites.size`: the stored set
   // can also hold a photo since removed, or a favourite from another album whose
@@ -368,7 +425,7 @@ function PhotoGridInner({
             alignItems: 'center',
             gap: '12px',
             padding: '8px 16px',
-            borderRadius: '30px',
+            borderRadius: 'var(--radius-lg)',
             background: 'var(--bg-card, #1e1e1e)',
             color: 'var(--text-primary, #ffffff)',
             border: '1px solid var(--border-subtle, rgba(255,255,255,0.15))',
@@ -386,7 +443,7 @@ function PhotoGridInner({
               color: proofing.isFilterActive ? 'var(--on-accent, #fff)' : 'var(--text-primary)',
               border: 'none',
               padding: '6px 14px',
-              borderRadius: '20px',
+              borderRadius: 'var(--radius-md)',
               fontSize: '0.85rem',
               fontWeight: 500,
               cursor: 'pointer',

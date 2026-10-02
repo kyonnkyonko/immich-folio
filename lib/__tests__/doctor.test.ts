@@ -15,6 +15,8 @@ import {
   checkPrivacy,
   checkContentPages,
   checkSettingValues,
+  checkDownloadMetadata,
+  checkZoomRenditions,
   worstLevel,
 } from '../admin/doctor';
 
@@ -499,5 +501,83 @@ describe('checkSettingValues (QA A-14)', () => {
     expect(checkSettingValues([{ field: 'url' }]).settingsSection).toBe('seo');
     expect(checkSettingValues([{ field: 'grid.gap' }]).settingsSection).toBe('grid');
     expect(checkSettingValues([{ field: 'theme.accent' }]).settingsSection).toBe('theme');
+    expect(checkSettingValues([{ field: 'theme.radius' }]).settingsSection).toBe('theme');
+    expect(checkSettingValues([{ field: 'contact.retentionDays' }]).settingsSection).toBe('legal');
+    expect(checkSettingValues([{ field: 'navLinks.3.url' }]).settingsSection).toBe('footer');
+  });
+
+  it('counts the header links as one setting however many entries fail', () => {
+    const f = checkSettingValues([
+      { field: 'navLinks.0.label' },
+      { field: 'navLinks.0.url' },
+      { field: 'navLinks.2.url' },
+    ]);
+    expect(f.title).toBe('The header links setting is ignored');
+  });
+});
+
+describe('checkDownloadMetadata', () => {
+  const album = (id: string, uncleanable: number, uncleanableWithLocation = 0) => ({
+    id,
+    albumName: `Album ${id}`,
+    uncleanable,
+    uncleanableWithLocation,
+  });
+
+  it('says nothing while no album offers downloads', () => {
+    expect(checkDownloadMetadata([])).toBeNull();
+  });
+
+  it('is ok when every original can be cleaned', () => {
+    const f = checkDownloadMetadata([album('a', 0), album('b', 0)])!;
+    expect(f.level).toBe('ok');
+    expect(f.id).toBe('download-metadata');
+    expect(f.detail).toContain('2 download albums');
+  });
+
+  it('warns about originals served with all their metadata, and names the albums', () => {
+    const f = checkDownloadMetadata([album('a', 0), album('b', 3, 2), album('c', 1)])!;
+    expect(f.level).toBe('warn');
+    expect(f.title).toBe('4 downloadable originals keep all metadata');
+    expect(f.detail).toContain('GPS');
+    expect(f.detail).toContain('Immich has a location for 2 of them');
+    expect(f.detail).toContain('Album b (3)');
+    expect(f.albumIds).toEqual(['b', 'c']);
+  });
+
+  it('leaves out the location count when Immich knows none', () => {
+    const f = checkDownloadMetadata([album('a', 1)])!;
+    expect(f.title).toBe('1 downloadable original keeps all metadata');
+    expect(f.detail).not.toContain('Immich has a location');
+  });
+});
+
+describe('checkZoomRenditions (#467)', () => {
+  const album = (id: string, needRendition: number) => ({ id, albumName: id, needRendition });
+
+  it('says nothing while no zoom album needs a rendition, or nothing is known', () => {
+    expect(checkZoomRenditions([], 'missing')).toBeNull();
+    expect(checkZoomRenditions([album('a', 0)], 'missing')).toBeNull();
+    expect(checkZoomRenditions([album('a', 3)], null)).toBeNull();
+  });
+
+  it('is fine when Immich has JPEG renditions', () => {
+    expect(checkZoomRenditions([album('a', 3)], 'ok')?.level).toBe('ok');
+  });
+
+  it('warns, naming the albums, when Immich has none', () => {
+    const finding = checkZoomRenditions([album('a', 3), album('b', 0), album('c', 1)], 'missing')!;
+    expect(finding.level).toBe('warn');
+    expect(finding.title).toMatch(/^4 photos cannot be zoomed/);
+    expect(finding.detail).toContain('Full-size');
+    expect(finding.albumIds).toEqual(['a', 'c']);
+  });
+
+  it('warns about a WebP rendition, which the zoom route refuses (review of #830)', () => {
+    const finding = checkZoomRenditions([album('a', 2)], { contentType: 'image/webp' })!;
+    expect(finding.level).toBe('warn');
+    expect(finding.title).toMatch(/not JPEG/);
+    expect(finding.detail).toContain('image/webp');
+    expect(finding.detail).toMatch(/Format to JPEG/);
   });
 });

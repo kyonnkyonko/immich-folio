@@ -48,11 +48,30 @@ export interface ImmichAsset {
   originalFileName: string;
   originalMimeType: string;
   thumbhash: string | null;
+  /**
+   * Pixel size as displayed, EXIF orientation already applied. Optional:
+   * older Immich responses omit it, and EXIF dimensions are the fallback.
+   */
+  width?: number | null;
+  height?: number | null;
   fileCreatedAt: string;
   /** Capture time in the photographer's local zone — Immich's timeline sort key. */
   localDateTime?: string;
   exifInfo?: ImmichExifInfo;
   isTrashed: boolean;
+  /**
+   * Edited in Immich's editor (crop, rotate, …). Immich still answers
+   * `/original` and the default thumbnail sizes with the *unedited* file; only
+   * `?edited=true` applies the edit — see streamAsset() and editMarker() in
+   * ./urls (#831). `width`/`height` above are the edited size, EXIF the
+   * stored one. Optional: older Immich has no editor.
+   */
+  isEdited?: boolean;
+  /**
+   * Last change to the asset in Immich. Read for edited photos only, as the
+   * cache marker of their image URLs (editMarker() in ./urls).
+   */
+  updatedAt?: string;
   /** Only surfaced in the admin pickers. Optional: older Immich responses omit it. */
   isFavorite?: boolean;
 }
@@ -106,6 +125,21 @@ interface CachedAlbumList {
 
 function allowlistKey(config: AppConfig): string {
   return [...config.albums].sort().join(',');
+}
+
+/**
+ * The Immich path for an asset's bytes. `edited=true` is only added when the
+ * edit is wanted, so a photo that is not edited is requested exactly as it
+ * always was (#831).
+ */
+export function assetBinaryPath(
+  assetId: string,
+  size: ImageSize | 'fullsize',
+  edited = false,
+): string {
+  const id = encodeURIComponent(assetId);
+  if (size === 'original') return `/assets/${id}/original${edited ? '?edited=true' : ''}`;
+  return `/assets/${id}/thumbnail?size=${size}${edited ? '&edited=true' : ''}`;
 }
 
 // ── API Client ─────────────────────────────────────────────────
@@ -270,18 +304,53 @@ class ImmichClient {
 
   /**
    * Stream a binary response from Immich (for image proxying).
+   *
+   * `edited` asks for the photo as edited in Immich's editor (#831). Measured
+   * against Immich 3.2: without it, the thumbnail, the preview and the
+   * original are the unedited file. With it, an edited photo's thumbnail and
+   * preview carry the crop or rotation, and its original is Immich's
+   * full-resolution edited rendition — a JPEG without EXIF, not the camera
+   * file. For a photo that is not edited, `edited=true` returns the same
+   * bytes as without it.
    */
   async streamAsset(
     assetId: string,
     size: ImageSize = 'preview',
+    edited = false,
+  ): Promise<{ stream: ReadableStream; contentType: string; contentLength: string | null } | null> {
+    return this.streamBinary(assetId, assetBinaryPath(assetId, size, edited), 'follow');
+  }
+
+  /**
+   * Immich's full-size rendition of an asset, or null when there is none (#467).
+   *
+   * `GET /assets/:id/thumbnail?size=fullsize` never 404s for a missing
+   * rendition: measured against Immich 3.2, it answers 302 to the original for
+   * a web-compatible format, and 302 to the 1440px preview when full-size
+   * previews are switched off or the asset has not been processed since they
+   * were switched on. Following either redirect would pass a preview off as
+   * full resolution, or hand out an original the caller did not choose — so
+   * redirects are not followed, and any 3xx means "no rendition".
+   *
+   * `edited` asks for the edited rendition of a photo edited in Immich
+   * (#831). Measured against Immich 3.2, an edited photo has one at full
+   * resolution — a JPEG — whether or not full-size previews are switched on,
+   * and it is the same file `original?edited=true` returns.
+   */
+  async streamFullsize(
+    assetId: string,
+    edited = false,
+  ): Promise<{ stream: ReadableStream; contentType: string; contentLength: string | null } | null> {
+    return this.streamBinary(assetId, assetBinaryPath(assetId, 'fullsize', edited), 'manual');
+  }
+
+  private async streamBinary(
+    assetId: string,
+    endpoint: string,
+    redirect: 'follow' | 'manual',
   ): Promise<{ stream: ReadableStream; contentType: string; contentLength: string | null } | null> {
     const config = this.config;
     if (!this.hasCredentials(config)) return null;
-
-    const endpoint =
-      size === 'original'
-        ? `/assets/${encodeURIComponent(assetId)}/original`
-        : `/assets/${encodeURIComponent(assetId)}/thumbnail?size=${size}`;
 
     const url = `${config.immich.apiUrl}${endpoint}`;
 
@@ -296,7 +365,14 @@ class ImmichClient {
           'x-api-key': config.immich.apiKey,
         },
         signal: controller.signal,
+        redirect,
       });
+
+      // Only reachable with `redirect: 'manual'`: Immich has no such file.
+      if (res.status >= 300 && res.status < 400) {
+        await res.body?.cancel();
+        return null;
+      }
 
       if (!res.ok) {
         console.error(`[Immich] Failed to stream ${assetId}: ${res.status}`);
@@ -734,7 +810,26 @@ class ImmichClient {
   }
 
   /**
-   * Find an album by its URL slug.
+   * Find an album by its URL slug, with its assets.
+   *
+   * The search set follows the route, never the whole allowlist: see
+   * findAlbumBySlug().
+   */
+  async getAlbumBySlug(
+    slug: string,
+    subpageSlug?: string,
+    forceFresh = false,
+  ): Promise<ImmichAlbum | null> {
+    const match = await this.findAlbumBySlug(slug, subpageSlug, forceFresh);
+    if (!match) return null;
+    return this.getAlbum(match.id, forceFresh);
+  }
+
+  /**
+   * The published album a URL slug names, from the album list alone — no asset
+   * fetch. The catch-all page asks this before it streams, to know whether a
+   * path exists while it can still answer 404; the list is the one the header
+   * nav already waits for, so the question costs no extra Immich request.
    *
    * The search set follows the route, never the whole allowlist: with a
    * subpageSlug it is that subpage's albums, without one it is the standalone
@@ -742,7 +837,7 @@ class ImmichClient {
    * top-level slug would answer for an album whose only route is a subpage —
    * past that subpage's password, and past `enabled: false`.
    */
-  async getAlbumBySlug(
+  async findAlbumBySlug(
     slug: string,
     subpageSlug?: string,
     forceFresh = false,
@@ -764,9 +859,7 @@ class ImmichClient {
     const searchSet = albums.filter((a) => routeIds.has(a.id));
 
     const wanted = normalizeSlug(slug);
-    const match = searchSet.find((a) => a.slug === wanted);
-    if (!match) return null;
-    return this.getAlbum(match.id, forceFresh);
+    return searchSet.find((a) => a.slug === wanted) ?? null;
   }
 
   /**

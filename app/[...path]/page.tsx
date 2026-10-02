@@ -13,6 +13,7 @@
  * Three or more segments: 404.
  */
 
+import { Suspense } from 'react';
 import { cookies } from 'next/headers';
 import type { Metadata } from 'next';
 import { immich, type ImmichAsset } from '@/lib/immich';
@@ -28,6 +29,7 @@ import {
   hasExifPanelContent,
   normalizeSlug,
   resolveProofing,
+  resolveZoom,
   type GridConfig,
 } from '@/lib/config';
 import { isProtected, isAuthenticated, withoutLockedAlbums } from '@/lib/auth';
@@ -49,6 +51,8 @@ import { resolveEssayFile, generatedEssayCaption } from '@/lib/essaySource';
 import { getServerDictionary } from '@/lib/i18n/server';
 import { contentPageMetadata, renderContentPage } from './contentPage';
 import { loadAlbumBlocks } from './essayPayload';
+import { isLocked, routeExists } from './routeExists';
+import { PathSkeleton } from './PathSkeleton';
 
 // Render at request time — requires live Immich connection
 export const dynamic = 'force-dynamic';
@@ -56,20 +60,6 @@ export const dynamic = 'force-dynamic';
 interface PathPageProps {
   params: Promise<{ path: string[] }>;
   searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
-}
-
-/**
- * Whether `key` is password-protected and this request has not unlocked it.
- * generateMetadata runs unconditionally — unlike the page body, nothing
- * downstream of it stops a real title, photo count or cover image from
- * reaching an unauthenticated `<head>` unless this is checked first
- * (GHSA-fvgv-97g3-wjr7).
- */
-async function isLocked(key: string, type: 'subpage' | 'album'): Promise<boolean> {
-  if (!isProtected(key, type)) return false;
-  const cookieStore = await cookies();
-  const getCookie = (name: string) => cookieStore.get(name)?.value;
-  return !isAuthenticated(key, getCookie, type);
 }
 
 /**
@@ -111,15 +101,17 @@ export async function generateMetadata({ params, searchParams }: PathPageProps):
   // Each branch follows the page body's order of gates and 404s, and takes
   // the title only from site-authored text (an album or subpage name). A
   // branch that finds nothing, or finds it locked, returns early, so the
-  // requested slug never becomes a title or share-card text.
+  // requested slug never becomes a title or share-card text. isLocked() comes
+  // first because generateMetadata runs unconditionally: nothing downstream
+  // stops a real title, photo count or cover image from reaching an
+  // unauthenticated `<head>` otherwise (GHSA-fvgv-97g3-wjr7).
   const slug = path[0];
+  const t = getServerDictionary();
   let title: string;
   let subtitle = '';
   let description: string | undefined = undefined;
   const photoCount = (assets: ImmichAsset[]) =>
-    getServerDictionary().common.photos(
-      assets.filter((a) => a.type === 'IMAGE' || a.type === 'VIDEO').length,
-    );
+    t.common.photos(assets.filter((a) => a.type === 'IMAGE' || a.type === 'VIDEO').length);
 
   if (path.length === 1 && immich.isSubpageSlug(slug)) {
     if (await isLocked(slug, 'subpage')) return lockedMetadata();
@@ -135,6 +127,9 @@ export async function generateMetadata({ params, searchParams }: PathPageProps):
       if (photoAssetId) photoAsset = album.assets.find((a) => a.id === photoAssetId);
     } else {
       title = result.subpage.title || result.subpage.name;
+      // A cover grid has no photo count to describe it by; without this it
+      // inherited the site-wide description.
+      description ??= `${title} — ${t.common.albums(result.albums.length)}`;
     }
   } else if (path.length === 2) {
     if (await isLocked(slug, 'subpage')) return lockedMetadata();
@@ -162,11 +157,19 @@ export async function generateMetadata({ params, searchParams }: PathPageProps):
     photoAsset?.exifInfo?.description?.trim() ||
     description ||
     (subtitle ? `${title} — ${subtitle}` : undefined);
-  const ogImage = photoAsset ? imageUrl(photoAsset.id, 'preview') : ogImageUrl(title, subtitle);
+  const ogImage = photoAsset ? imageUrl(photoAsset, 'preview') : ogImageUrl(title, subtitle);
+
+  // A hidden subpage is reachable by link only: out of the nav, the home page
+  // and the sitemap. Indexing it, or an album below it, would undo that.
+  const config = getConfig();
+  const hidden =
+    (path.length === 2 || immich.isSubpageSlug(slug)) &&
+    config.subpages.some((sp) => sp.slug === slug && sp.hidden === true);
 
   return {
     title,
     description: ogDescription,
+    ...(hidden ? { robots: { index: false, follow: !config.seo.noFollow } } : {}),
     openGraph: {
       title,
       description: ogDescription,
@@ -187,13 +190,22 @@ export async function generateMetadata({ params, searchParams }: PathPageProps):
  * claim without one (#472).
  */
 function structuredDataFor(
-  album: { albumName: string; description?: string; albumThumbnailAssetId?: string | null },
+  album: {
+    albumName: string;
+    description?: string;
+    albumThumbnailAssetId?: string | null;
+    assets?: ImmichAsset[];
+  },
   path: string,
   photoCount: number,
 ) {
   const config = getConfig();
-  const cover = album.albumThumbnailAssetId
-    ? absoluteUrl(config.siteUrl, imageUrl(album.albumThumbnailAssetId, 'preview'))
+  const coverId = album.albumThumbnailAssetId;
+  // The album's own copy of its cover, when it has one, so an edit made in
+  // Immich reaches the URL (#831).
+  const coverAsset = coverId ? album.assets?.find((a) => a.id === coverId) : undefined;
+  const cover = coverId
+    ? absoluteUrl(config.siteUrl, imageUrl(coverAsset ?? coverId, 'preview'))
     : null;
   return albumStructuredData({
     siteUrl: config.siteUrl,
@@ -241,12 +253,39 @@ async function getAlbumHeroData(
   const asset = await immich.getAssetInfo(heroAssetId);
   const ph = asset ? assetPlaceholder(asset) : null;
   return {
-    heroImageUrl: imageUrl(heroAssetId, 'preview'),
+    heroImageUrl: imageUrl(asset ?? heroAssetId, 'preview'),
     heroBlurDataURL: ph?.blurDataURL,
   };
 }
 
-export default async function PathPage({ params, searchParams }: PathPageProps) {
+/**
+ * Decides whether the path exists before anything streams, then renders the
+ * content behind the skeleton.
+ *
+ * The order is the point. Next sends the status with the first byte, and the
+ * first byte goes out as soon as a Suspense fallback renders. A notFound()
+ * thrown after that can only add a noindex tag to a 200 (a "soft 404"), which
+ * is what every unknown slug got while this page sat inside a loading.tsx
+ * boundary. routeExists() needs only the config and the album list the header
+ * nav already waited for, so the check costs no time; the album's photos, the
+ * slow part, still load behind the skeleton.
+ *
+ * PathContent keeps its own notFound() calls as the backstop for what the
+ * check cannot see, such as an album removed from Immich since the list was
+ * cached. Those are still soft.
+ */
+export default async function PathPage(props: PathPageProps) {
+  const { path: rawPath } = await props.params;
+  if (!(await routeExists(rawPath?.map(normalizeSlug)))) notFound();
+
+  return (
+    <Suspense fallback={<PathSkeleton />}>
+      <PathContent {...props} />
+    </Suspense>
+  );
+}
+
+async function PathContent({ params, searchParams }: PathPageProps) {
   // Next hands catch-all segments over percent-encoded, so a non-ASCII slug
   // ("/家族相册") would never match a stored one. Decode once, here, and every
   // comparison downstream works on the same form (#522).
@@ -299,6 +338,10 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
   // reached without a subpage follow the global setting.
   const proofingFor = (subpage?: { proofing?: boolean }) =>
     resolveProofing(subpage, config.proofing.enabled);
+  // Lightbox zoom (#467): album, then the subpage it is shown on, then the
+  // site setting. The album id goes to toPhotoItems() when it resolves on.
+  const zoomAlbumFor = (albumId: string, subpage?: { zoom?: boolean }) =>
+    resolveZoom(config, albumId, subpage) ? albumId : undefined;
 
   // EXPERIMENTAL: per-album grid override — merged over the subpage grid so
   // the precedence is global < subpage < album.
@@ -352,6 +395,7 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
       config.exif.onHover && config.exif.camera,
       config.exif.caption,
       config.albumDownloads[album.id] ? album.id : undefined,
+      zoomAlbumFor(album.id, subpageData?.subpage),
     );
 
     // Password gate for protected albums
@@ -575,6 +619,7 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
         config.exif.onHover && config.exif.camera,
         config.exif.caption,
         config.albumDownloads[album.id] ? album.id : undefined,
+        zoomAlbumFor(album.id, result.subpage),
       );
 
       // Password gate for protected albums
@@ -619,14 +664,23 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
       };
     });
 
-    // Batch-fetch ThumbHash for album cover placeholders
-    const coverPlaceholders = await Promise.all(
-      albumsWithHero.map(async (album) => {
-        if (!album.albumThumbnailAssetId) return null;
-        const asset = await immich.getAssetInfo(album.albumThumbnailAssetId);
-        return asset ? assetPlaceholder(asset) : null;
-      }),
+    // Batch-fetch the cover assets: ThumbHash for the placeholders, and
+    // whether the cover was edited in Immich, which its URL has to say (#831).
+    const coverAssets = await Promise.all(
+      albumsWithHero.map((album) =>
+        album.albumThumbnailAssetId ? immich.getAssetInfo(album.albumThumbnailAssetId) : null,
+      ),
     );
+    const coverPlaceholders = coverAssets.map((asset) => (asset ? assetPlaceholder(asset) : null));
+    const albumsWithCover = albumsWithHero.map((album, i) => {
+      const asset = coverAssets[i];
+      return asset
+        ? {
+            ...album,
+            cover: { id: asset.id, isEdited: asset.isEdited, updatedAt: asset.updatedAt },
+          }
+        : album;
+    });
 
     // 1-based position among the enabled subpages — drives the header kicker.
     const enabledSubpages = config.subpages.filter((sp) => sp.enabled !== false);
@@ -646,7 +700,7 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
         slug={slug}
         title={result.subpage.title || result.subpage.name}
         subtitle={result.subpage.subtitle}
-        albums={albumsWithHero}
+        albums={albumsWithCover}
         coverPlaceholders={coverPlaceholders}
         sections={result.subpage.sections}
         gridStyle={buildCoverGridStyle(result.subpage.coverGrid)}
@@ -687,6 +741,7 @@ export default async function PathPage({ params, searchParams }: PathPageProps) 
     config.exif.onHover && config.exif.camera,
     config.exif.caption,
     config.albumDownloads[album.id] ? album.id : undefined,
+    zoomAlbumFor(album.id),
   );
 
   // Password gate for protected albums

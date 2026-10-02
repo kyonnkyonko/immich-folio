@@ -99,6 +99,7 @@ export const en = {
       seconds
         ? `Too many attempts. Please try again in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`
         : 'Too many attempts. Please try again later.',
+    legalNavAria: 'Legal information',
   },
 
   about: {
@@ -134,7 +135,6 @@ export const en = {
     title: 'Journal',
     kicker: 'Stories & Essays',
     subtitle: 'Photo essays, visual stories, and field notes.',
-    description: 'Photo essays, travel stories, and behind-the-scenes journals.',
     entryDescription: 'Journal entry',
     empty: 'No journal entries published yet.',
     readStory: 'Read Story →',
@@ -189,6 +189,16 @@ export const en = {
     shortcutCopyLink: 'Copy link to this photo',
     shortcutList: 'This list',
     shortcutClose: 'Close the viewer',
+    /** The zoom button (#467): to 1:1 from fit, and back. */
+    zoomIn: 'Zoom to full resolution',
+    zoomInTitle: 'Zoom to full resolution (+ or double-click)',
+    zoomOut: 'Fit the photo to the screen',
+    zoomOutTitle: 'Fit to screen (0 or Esc)',
+    zoomLoading: 'Loading full resolution…',
+    /** Immich has no full-resolution file the viewer may show for this photo. */
+    zoomUnavailable: 'Full resolution is not available for this photo.',
+    shortcutZoom: 'Zoom in / out',
+    shortcutZoomReset: 'Fit to screen',
   },
 
   proofing: {

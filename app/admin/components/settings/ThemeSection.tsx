@@ -4,10 +4,10 @@ import { useState, type CSSProperties } from 'react';
 import * as Icons from '../Icons';
 import OptionGrid, { toOptions } from '../fields/OptionGrid';
 import { DEFAULT_PRESET } from '@/lib/config/theme';
+import { PRESET_IDS, PRESET_REGISTRY } from '@/lib/config/presets';
 import { effectiveTheme, FeatureRow, FieldError } from './fields';
 import type { SectionProps } from './types';
 
-const PRESETS = ['studio-modern', 'studio', 'minimal', 'editorial', 'classic', 'noir', 'monograph'];
 const PHOTO_FRAMES = ['none', 'passepartout', 'shadow'];
 const HERO_STYLES = ['split', 'fullbleed', 'minimal', 'stacked', 'typographic', 'mosaic', 'cover'];
 
@@ -36,7 +36,7 @@ const HERO_STYLE_INFO: Record<string, { label: string; desc: string }> = {
   fullbleed: { label: 'Fullbleed', desc: 'Edge-to-edge full width banner' },
   minimal: { label: 'Minimal', desc: 'Centered title with subtle photo' },
   stacked: { label: 'Stacked', desc: 'Title stacked directly over photo' },
-  typographic: { label: 'Typographic', desc: 'Oversized magazine masthead' },
+  typographic: { label: 'Typographic', desc: 'Oversized text masthead, no photos' },
   mosaic: { label: 'Mosaic', desc: 'Dynamic photo collage layout' },
   cover: {
     label: 'Cover (Experimental)',
@@ -79,14 +79,25 @@ function HeroStylePreview({ value }: { value: string }) {
             <div className="hero-demo-photo banner" />
           </>
         )}
+        {/* Text only, like the hero it stands for: the typographic hero
+            renders no photo, so the card must not promise any. */}
         {value === 'typographic' && (
           <>
             <div className="demo-line title giant" />
-            <div className="hero-demo-grid2">
-              <div className="hero-demo-photo" />
-              <div className="hero-demo-photo" />
+            <div className="demo-line sub" />
+            <div className="hero-demo-divider" />
+            <div className="hero-demo-nav">
+              <div className="demo-line" />
+              <div className="demo-line" />
+              <div className="demo-line" />
             </div>
           </>
+        )}
+        {value === 'cover' && (
+          <div className="hero-demo-full hero-demo-cover-splash">
+            <div className="demo-line title light" />
+            <div className="hero-demo-enter" />
+          </div>
         )}
         {value === 'mosaic' && (
           <div className="hero-demo-mosaic">
@@ -103,9 +114,10 @@ function HeroStylePreview({ value }: { value: string }) {
 }
 
 /**
- * Card metadata for the theme picker. `font`, `radius` and `frame` mirror the
- * real preset definitions in lib/config/theme.ts so the mini mockups show what
- * the preset actually does; `gap` is the visual density of its gallery grid.
+ * Card metadata for the theme picker, from the preset registry
+ * (lib/config/presets.ts). `font`, `radius` and `frame` are the preset's own
+ * values so the mini mockups show what the preset actually does; `gap` is the
+ * visual density of its gallery grid.
  */
 const THEME_INFO: Record<
   string,
@@ -121,92 +133,19 @@ const THEME_INFO: Record<
     frame: 'none' | 'passepartout' | 'shadow';
     gap: number;
   }
-> = {
-  studio: {
-    label: 'Studio',
-    desc: 'Clean, high-contrast grid with sans-serif type.',
-    bg: '#141414',
-    tile: '#242424',
-    accent: '#e60012',
-    font: 'Playfair Display',
-    type: 'serif',
-    radius: 0,
-    frame: 'passepartout',
-    gap: 4,
-  },
-  'studio-modern': {
-    label: 'Studio Modern',
-    desc: 'Leica precision: Archivo grotesque, mono EXIF, red signal accents.',
-    bg: '#121212',
-    tile: '#191919',
-    accent: '#e60012',
-    font: 'Archivo',
-    type: 'sans',
-    radius: 0,
-    frame: 'none',
-    gap: 3,
-  },
-  minimal: {
-    label: 'Minimal',
-    desc: 'Pure raw layouts with tiny gaps and high whitespace.',
-    bg: '#ffffff',
-    tile: '#f3f3f3',
-    accent: '#111111',
-    font: 'Geist',
-    type: 'sans',
-    radius: 0,
-    frame: 'none',
-    gap: 2,
-  },
-  editorial: {
-    label: 'Editorial',
-    desc: 'Warm backgrounds, elegant serifs and large headers.',
-    bg: '#fbf9f4',
-    tile: '#e5dfd4',
-    accent: '#b89053',
-    font: 'Bodoni Moda',
-    type: 'serif',
-    radius: 0,
-    frame: 'shadow',
-    gap: 8,
-  },
-  classic: {
-    label: 'Classic',
-    desc: 'Soft traditional photographer portfolio with shadows.',
-    bg: '#f7f7f7',
-    tile: '#ffffff',
-    accent: '#444444',
-    font: 'Cinzel',
-    type: 'serif',
-    radius: 12,
-    frame: 'passepartout',
-    gap: 7,
-  },
-  noir: {
-    label: 'Noir',
-    desc: 'High drama absolute pitch black, stark high-fashion look.',
-    bg: '#000000',
-    tile: '#151515',
-    accent: '#ffffff',
-    font: 'Libre Baskerville',
-    type: 'serif',
-    radius: 0,
-    frame: 'passepartout',
-    gap: 6,
-  },
-  monograph: {
-    label: 'Monograph',
-    desc: 'Typewriter monospace font, grid borders and document feel.',
-    bg: '#f4f4f6',
-    tile: '#ffffff',
-    accent: '#555555',
-    font: 'Instrument Serif',
-    type: 'mono',
-    radius: 0,
-    frame: 'none',
-    gap: 5,
-  },
-};
+> = Object.fromEntries(
+  PRESET_REGISTRY.map((p) => [
+    p.id,
+    {
+      label: p.label,
+      desc: p.description,
+      ...p.card,
+      font: p.theme.fonts.heading,
+      radius: p.theme.radius,
+      frame: p.theme.photoFrame,
+    },
+  ]),
+);
 
 /* The preset group sits below THEME_INFO on purpose. PRESET_OPTIONS is built
    at module evaluation and reads it through themeInfo(); declared above, it
@@ -232,7 +171,7 @@ function themeInfo(value: string) {
   );
 }
 
-const PRESET_OPTIONS = PRESETS.map((value) => ({
+const PRESET_OPTIONS = PRESET_IDS.map((value) => ({
   value,
   label: themeInfo(value).label,
   desc: themeInfo(value).desc,

@@ -54,9 +54,11 @@ import { useLatest } from './useLatest';
 import { useVersionedSave } from './useVersionedSave';
 import type { GalleryVersionChange } from '@/lib/admin/pageRefs';
 import DraftNotice from './DraftNotice';
+import { sameDraft } from './sameDraft';
 import { reportIfSessionExpired } from './sessionExpiry';
 import { IconCamera, IconHome, IconPlus, IconSearch } from './Icons';
 import { useNotify } from './Notifications';
+import { dndAnnouncements } from './dndAnnouncements';
 
 /** Drop target id of the "Not in menu" group. */
 const OFF_MENU_ID = 'offmenu-zone';
@@ -83,7 +85,12 @@ export default function PageBuilder() {
    */
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  /** Set by any edit; `dirty` below also asks whether the edits changed anything. */
+  const [edited, setDirty] = useState(false);
+  /** gallery.yaml as last loaded or saved — `serverState`, as state for the comparison. */
+  const [savedGallery, setSavedGallery] = useState<GalleryState | null>(null);
+  // Putting an edit back the way it was is not an unsaved change (QA A-19).
+  const dirty = edited && !(savedGallery && sameDraft(gallery, savedGallery));
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(null);
   const [expandedSubpage, setExpandedSubpage] = useState<number | null>(null);
   /** What the panel shows while no subpage is selected (UX stage 4). */
@@ -205,6 +212,7 @@ export default function PageBuilder() {
       versionRef.current = typeof version === 'string' ? version : null;
       const parsed = parseGalleryYaml(raw);
       serverState.current = parsed;
+      setSavedGallery(parsed);
       const restored = draft.load(JSON.stringify(parsed));
       setGallery(restored ?? parsed);
       // Not merely "set when restored": on a reload after a backup restore the
@@ -335,6 +343,7 @@ export default function PageBuilder() {
         const written = (data.gallery ?? yamlData) as Record<string, unknown>;
         const asLoaded = parseGalleryYaml(JSON.parse(JSON.stringify(written)));
         serverState.current = asLoaded;
+        setSavedGallery(asLoaded);
         // Edited while the request was out: those edits are not saved yet, so
         // they stay dirty and are not replaced by the file as written.
         const editedMeanwhile = latestGallery.current !== sent;
@@ -490,6 +499,7 @@ export default function PageBuilder() {
     if (change && versionRef.current === change.from) versionRef.current = change.to;
     if (serverState.current) {
       serverState.current = op(serverState.current);
+      setSavedGallery(serverState.current);
       draft.saved(JSON.stringify(serverState.current));
     }
   }
@@ -638,6 +648,24 @@ export default function PageBuilder() {
     const found = immichAlbums.find((a) => a.id === id);
     return found?.albumName || id.slice(0, 8) + '...';
   }
+
+  /** A sortable id as the list shows it, for the drag announcements (QA A-20). */
+  function dragLabel(id: string | number): string {
+    const key = String(id);
+    const subpage = /^subpage-(\d+)$/.exec(key);
+    if (subpage) return `page "${gallery.subpages[Number(subpage[1])]?.name || 'Untitled'}"`;
+    const page = /^page-(.+)$/.exec(key);
+    if (page) {
+      const found = pages.find((p) => p.slug === page[1]);
+      return `page "${found?.frontmatter.title || page[1]}"`;
+    }
+    const hero = /^hero-(\d+)$/.exec(key);
+    if (hero) return `homepage hero photo ${Number(hero[1]) + 1}`;
+    const album = /^album-(.+)-\d+$/.exec(key);
+    if (album) return `album "${getAlbumName(album[1])}"`;
+    return 'item';
+  }
+  const announcements = dndAnnouncements(dragLabel);
 
   function getAlbumCount(id: string): number {
     const found = immichAlbums.find((a) => a.id === id);
@@ -848,6 +876,7 @@ export default function PageBuilder() {
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleMenuDragEnd}
+            accessibility={{ announcements }}
           >
             <div className="pb-group">
               <div className="pb-group-head">
@@ -1024,6 +1053,7 @@ export default function PageBuilder() {
                   sensors={sensors}
                   collisionDetection={closestCenter}
                   onDragEnd={handleAlbumDragEnd}
+                  accessibility={{ announcements }}
                 >
                   <SortableContext
                     items={filteredAlbums.map((a) => {
@@ -1071,7 +1101,7 @@ export default function PageBuilder() {
               <section className="builder-section">
                 <div className="builder-section-header">
                   <h2>
-                    <IconHome /> Homepage Hero
+                    <IconHome /> Hero photos
                   </h2>
                   <button
                     className="admin-btn admin-btn-sm"
@@ -1090,6 +1120,7 @@ export default function PageBuilder() {
                   sensors={sensors}
                   collisionDetection={closestCenter}
                   onDragEnd={handleHeroDragEnd}
+                  accessibility={{ announcements }}
                 >
                   <SortableContext
                     items={gallery.hero.map((_, i) => `hero-${i}`)}

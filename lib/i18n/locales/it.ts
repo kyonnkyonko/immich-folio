@@ -98,6 +98,7 @@ export const it: Dictionary = {
       seconds
         ? `Troppi tentativi. Riprova tra ${seconds} ${seconds === 1 ? 'secondo' : 'secondi'}.`
         : 'Troppi tentativi. Riprova più tardi.',
+    legalNavAria: 'Note legali',
   },
 
   about: {
@@ -132,7 +133,6 @@ export const it: Dictionary = {
     title: 'Diario',
     kicker: 'Storie e saggi',
     subtitle: 'Saggi fotografici, racconti visivi e appunti sul campo.',
-    description: 'Saggi fotografici, racconti di viaggio e diari dietro le quinte.',
     entryDescription: 'Articolo del diario',
     empty: 'Nessun articolo pubblicato per ora.',
     readStory: 'Leggi la storia →',
@@ -186,6 +186,14 @@ export const it: Dictionary = {
     shortcutCopyLink: 'Copia il link a questa foto',
     shortcutList: 'Questo elenco',
     shortcutClose: 'Chiudi il visualizzatore',
+    zoomIn: 'Ingrandisci alla risoluzione piena',
+    zoomInTitle: 'Ingrandisci alla risoluzione piena (+ o doppio clic)',
+    zoomOut: 'Adatta la foto allo schermo',
+    zoomOutTitle: 'Adatta allo schermo (0 o Esc)',
+    zoomLoading: 'Caricamento della risoluzione piena…',
+    zoomUnavailable: 'La risoluzione piena non è disponibile per questa foto.',
+    shortcutZoom: 'Ingrandisci / riduci',
+    shortcutZoomReset: 'Adatta allo schermo',
   },
 
   proofing: {

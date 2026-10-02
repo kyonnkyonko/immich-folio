@@ -10,13 +10,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Readable } from 'node:stream';
 import archiver from 'archiver';
 import { immich, type ImmichAsset } from '@/lib/immich';
-import { contentDisposition, safeDownloadName } from '@/lib/downloadName';
+import { contentDisposition, editedDownloadName, safeDownloadName } from '@/lib/downloadName';
 import { getClientIp } from '@/lib/rate-limit';
 import { getDictionary } from '@/lib/i18n';
 import { getLocale, getServerDictionary } from '@/lib/i18n/server';
 import { getConfigOrNull } from '@/lib/config';
 import { accentForMode, resolveTheme } from '@/lib/config/theme';
 import { env } from '@/lib/env';
+import { scrubLocationStream } from '@/lib/locationScrub';
 
 /** Escape a value interpolated into the refusal page. */
 function escapeHtml(value: string): string {
@@ -115,6 +116,26 @@ export const REFUSAL_PALETTES: Record<string, { dark: Palette; light: Palette }>
   monograph: {
     dark: { bg: '#151515', text: '#e8e8e8', muted: '#a5a5a5' },
     light: { bg: '#fafafa', text: '#111111', muted: '#475569' },
+  },
+  kunsthalle: {
+    dark: { bg: '#2b2b29', text: '#f0efeb', muted: '#c6c4bd' },
+    light: { bg: '#dddcd8', text: '#1b1b19', muted: '#3f3e3a' },
+  },
+  ma: {
+    dark: { bg: '#1a1917', text: '#ece7dd', muted: '#b5ad9f' },
+    light: { bg: '#f0ede6', text: '#1f1d1a', muted: '#4d4943' },
+  },
+  cyanotype: {
+    dark: { bg: '#0e1621', text: '#e3eaf0', muted: '#a8b7c6' },
+    light: { bg: '#eef2f4', text: '#10243a', muted: '#34495f' },
+  },
+  salon: {
+    dark: { bg: '#1c1315', text: '#f3eae7', muted: '#c5b1ad' },
+    light: { bg: '#f5efec', text: '#271618', muted: '#573f42' },
+  },
+  birch: {
+    dark: { bg: '#121613', text: '#e9eee9', muted: '#aab5ac' },
+    light: { bg: '#f3f5f1', text: '#19201b', muted: '#434e46' },
   },
 };
 
@@ -217,6 +238,28 @@ function uniqueEntryName(raw: string | undefined, used: Set<string>): string {
 }
 
 /**
+ * The timestamp an entry carries: when the photo was taken, not when the ZIP
+ * was built. Without it every file unpacked with the download time, so a
+ * folder sorted by date lost the album's order.
+ *
+ * A ZIP stores a wall-clock time with no zone, and archiver writes the UTC
+ * fields of the Date it is given. Immich's `localDateTime` is exactly that
+ * shape — the capture time in the photographer's zone, written as if it were
+ * UTC — so it lands in the archive as the time on the camera, whatever zone
+ * the server runs in. `dateTimeOriginal` and `fileCreatedAt` are real instants
+ * and only the fallbacks. All three come with the album response: no extra
+ * Immich request. Undefined leaves archiver's default (now).
+ */
+export function entryDate(asset: ImmichAsset): Date | undefined {
+  for (const raw of [asset.localDateTime, asset.exifInfo?.dateTimeOriginal, asset.fileCreatedAt]) {
+    if (!raw) continue;
+    const date = new Date(raw);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return undefined;
+}
+
+/**
  * Append one entry, resolving once it has been written (or the archive has been
  * torn down because the visitor left).
  *
@@ -232,7 +275,12 @@ function uniqueEntryName(raw: string | undefined, used: Set<string>): string {
  * that for a queued or half-read entry, and the upstream body would otherwise
  * hold its socket out of undici's pool until GC finalises it (#635).
  */
-function appendEntry(archive: archiver.Archiver, source: Readable, name: string): Promise<void> {
+function appendEntry(
+  archive: archiver.Archiver,
+  source: Readable,
+  name: string,
+  date?: Date,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       archive.off('entry', onEntry);
@@ -259,7 +307,7 @@ function appendEntry(archive: archiver.Archiver, source: Readable, name: string)
     archive.once('entry', onEntry);
     archive.once('error', onError);
     archive.once('close', onClose);
-    archive.append(source, { name });
+    archive.append(source, date ? { name, date } : { name });
   });
 }
 
@@ -352,7 +400,8 @@ export async function withArchiveSlot(
 }
 
 /**
- * Stream `assets` as a ZIP of originals.
+ * Stream `assets` as a ZIP of originals, without their location metadata
+ * (lib/locationScrub.ts).
  *
  * archiver writes data descriptors, so entry sizes are never known up front and
  * memory stays flat no matter how large the album is. The loop pulls one
@@ -439,20 +488,65 @@ export function streamArchive(
   void (async () => {
     try {
       const used = new Set<string>();
+      // Originals refused by the location scrubber. The ZIP carries on without
+      // them, so the count is the only trace a visitor's archive came up short.
+      let dropped = 0;
       for (const asset of assets) {
         // The visitor left (or the archive failed): stop pulling originals.
         if (archive.destroyed) break;
-        const result = await immich.streamAsset(asset.id, 'original');
+        // Edited in Immich: the edit, not the unedited camera file (#831).
+        const edited = asset.isEdited === true;
+        const result = await immich.streamAsset(asset.id, 'original', edited);
         if (!result) continue;
         if (archive.destroyed) {
           // Left while the headers were on their way: release the body unread.
           await result.stream.cancel();
           break;
         }
+        // Location out, as for the single download. Only the head of each
+        // original is held while its metadata is found, so memory stays flat.
+        const scrubbed = await scrubLocationStream(result.stream as ReadableStream<Uint8Array>);
+        if (!scrubbed.ok) {
+          dropped++;
+          console.warn(
+            `[Download] Left asset ${asset.id} out of the archive "${albumName}": its location metadata could not be removed (${scrubbed.reason}).`,
+          );
+          continue;
+        }
+        // An edited photo's rendition is expected as JPEG (#831); one the
+        // scrubber passes through untouched stays out, as for the single
+        // download.
+        if (edited && scrubbed.format === 'passthrough') {
+          dropped++;
+          await scrubbed.stream.cancel().catch(() => {});
+          console.warn(
+            `[Download] Left edited asset ${asset.id} out of the archive "${albumName}": Immich sent ${result.contentType || 'no type'}, which is not a JPEG or HEIF-family file.`,
+          );
+          continue;
+        }
+        if (archive.destroyed) {
+          await scrubbed.stream.cancel();
+          break;
+        }
         const nodeStream = Readable.fromWeb(
-          result.stream as unknown as import('node:stream/web').ReadableStream,
+          scrubbed.stream as unknown as import('node:stream/web').ReadableStream,
         );
-        await appendEntry(archive, nodeStream, uniqueEntryName(asset.originalFileName, used));
+        await appendEntry(
+          archive,
+          nodeStream,
+          uniqueEntryName(
+            edited
+              ? editedDownloadName(asset.originalFileName, result.contentType)
+              : asset.originalFileName,
+            used,
+          ),
+          entryDate(asset),
+        );
+      }
+      if (dropped) {
+        console.warn(
+          `[Download] Archive "${albumName}" is missing ${dropped} of ${assets.length} originals; see the lines above for the asset IDs.`,
+        );
       }
       if (!archive.destroyed) await archive.finalize();
     } catch (err) {

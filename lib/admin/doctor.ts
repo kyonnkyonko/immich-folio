@@ -314,6 +314,124 @@ export function checkAlbumsShared(configured: string[], known: AlbumRef[]): Doct
   };
 }
 
+/** What the doctor needs to know about one album that offers downloads. */
+export interface DownloadAlbumRef {
+  id: string;
+  albumName: string;
+  /** Assets in a format whose metadata the download cannot clean (RAW, PNG, video, …). */
+  uncleanable: number;
+  /** Of those, how many Immich has coordinates for. */
+  uncleanableWithLocation: number;
+}
+
+/**
+ * Downloads remove GPS from JPEG, HEIC/HEIF and AVIF originals
+ * (lib/locationScrub.ts). Every other format is served exactly as Immich
+ * stores it, so an album that offers downloads and holds such files hands out
+ * whatever location they carry. The route decides which assets are cleanable;
+ * this module stays import-free for `npm run doctor`. Returns null while no
+ * album offers downloads.
+ */
+export function checkDownloadMetadata(albums: DownloadAlbumRef[]): DoctorFinding | null {
+  if (!albums.length) return null;
+  const affected = albums.filter((a) => a.uncleanable > 0);
+
+  if (!affected.length) {
+    return {
+      id: 'download-metadata',
+      level: 'ok',
+      title: 'Downloads go out without GPS',
+      detail: `Every original in the ${albums.length === 1 ? 'download album' : `${albums.length} download albums`} is JPEG, HEIC or AVIF, and is served with its location removed.`,
+    };
+  }
+
+  const files = affected.reduce((n, a) => n + a.uncleanable, 0);
+  const located = affected.reduce((n, a) => n + a.uncleanableWithLocation, 0);
+  return {
+    id: 'download-metadata',
+    level: 'warn',
+    title: `${files} downloadable ${files === 1 ? 'original keeps' : 'originals keep'} all metadata`,
+    detail:
+      'RAW, DNG, PNG, TIFF, WebP and video files are served exactly as stored, with any GPS ' +
+      `coordinates${located ? ` (Immich has a location for ${located} of them)` : ''}. ` +
+      'Turn off downloads or remove these files if their location should stay private: ' +
+      affected.map((a) => `${a.albumName} (${a.uncleanable})`).join(', '),
+    albumIds: affected.map((a) => a.id),
+  };
+}
+
+/** What the doctor needs to know about one album with lightbox zoom on (#467). */
+export interface ZoomAlbumRef {
+  id: string;
+  albumName: string;
+  /** Photos zoomed through Immich's full-size rendition (HEIC, RAW, TIFF, …). */
+  needRendition: number;
+}
+
+/**
+ * What the sampled full-size rendition turned out to be: `ok` (JPEG, which the
+ * zoom route serves), `missing` (Immich has none), or the content type of one
+ * the route refuses — a WebP rendition, when Immich's full-size format is set
+ * to WebP, since the location scrubber cannot clean WebP.
+ */
+export type ZoomRenditionSample = 'ok' | 'missing' | { contentType: string };
+
+/**
+ * Zoom shows JPEG and AVIF originals directly, but everything a browser cannot
+ * display needs Immich's full-size rendition, which Immich only generates while
+ * "Full-size image" is on in its image settings, and which the zoom route only
+ * serves as JPEG. Immich does not say whether a rendition exists until one is
+ * asked for, so the route samples one photo and passes what it found (null
+ * when it could not ask).
+ *
+ * Returns null when no zoom album holds such photos, or nothing is known.
+ */
+export function checkZoomRenditions(
+  albums: ZoomAlbumRef[],
+  sample: ZoomRenditionSample | null,
+): DoctorFinding | null {
+  const affected = albums.filter((a) => a.needRendition > 0);
+  if (!affected.length || sample === null) return null;
+  const photos = affected.reduce((n, a) => n + a.needRendition, 0);
+  const noun = photos === 1 ? 'photo' : 'photos';
+  const albumList = affected.map((a) => `${a.albumName} (${a.needRendition})`).join(', ');
+
+  if (sample === 'ok') {
+    return {
+      id: 'zoom-renditions',
+      level: 'ok',
+      title: 'Immich has full-size previews for zoom',
+      detail: `${photos} HEIC, RAW or similar ${noun} in zoom albums are zoomed through Immich's full-size rendition, with the location removed.`,
+    };
+  }
+  if (sample === 'missing') {
+    return {
+      id: 'zoom-renditions',
+      level: 'warn',
+      title: `${photos} ${noun} cannot be zoomed: Immich has no full-size preview`,
+      detail:
+        'HEIC, RAW and other formats a browser cannot show are zoomed through Immich’s full-size ' +
+        'rendition, and Immich has none (one photo sampled). Visitors see the zoom button and then ' +
+        '"not available". In Immich, turn on Administration › Settings › Image Settings › Full-size ' +
+        'image (JPEG), then run the Generate Thumbnails job for missing assets. Albums: ' +
+        albumList,
+      albumIds: affected.map((a) => a.id),
+    };
+  }
+  return {
+    id: 'zoom-renditions',
+    level: 'warn',
+    title: `${photos} ${noun} cannot be zoomed: Immich's full-size format is not JPEG`,
+    detail:
+      `Immich renders its full-size previews as ${sample.contentType || 'an unknown type'}, and ` +
+      'zoom only serves JPEG renditions — their location metadata is removed on the way out, which ' +
+      'Folio cannot do for WebP. Set Administration › Settings › Image Settings › Full-size image ' +
+      '› Format to JPEG, then run the Generate Thumbnails job. Albums: ' +
+      albumList,
+    albumIds: affected.map((a) => a.id),
+  };
+}
+
 /** One set of albums that will all be reachable under the same URL prefix. */
 export interface AlbumSlugGroup {
   /** e.g. "gallery.yaml albums" or `subpage "Trips"` */
@@ -567,17 +685,28 @@ export function checkContact(
 const SETTING_SECTIONS: Record<string, string> = {
   url: 'seo',
   'theme.accent': 'theme',
+  'theme.radius': 'theme',
   'grid.columns': 'grid',
   'grid.gap': 'grid',
+  'contact.retentionDays': 'legal',
+  navLinks: 'footer',
 };
 
 /** Human names for the same fields, for the finding's text. */
 const SETTING_LABELS: Record<string, string> = {
   url: 'Site URL',
   'theme.accent': 'accent colour',
+  'theme.radius': 'corner radius',
   'grid.columns': 'grid columns',
   'grid.gap': 'grid gap',
+  'contact.retentionDays': 'message retention',
+  navLinks: 'header links',
 };
+
+/** `navLinks.2.url` → `navLinks`: every header-link error is one setting. */
+function settingKey(field: string): string {
+  return field.startsWith('navLinks.') ? 'navLinks' : field;
+}
 
 /**
  * Values in settings.yaml the site does not use as written — an accent that is
@@ -592,21 +721,23 @@ export function checkSettingValues(errors: Array<{ field: string }>): DoctorFind
       id: 'settings-values',
       level: 'ok',
       title: 'Settings are used as written',
-      detail: 'Site URL, accent colour and grid values in settings.yaml are all valid.',
+      detail:
+        'Site URL, theme, grid, message retention and header links in settings.yaml are all valid.',
     };
   }
-  const names = errors.map((e) => SETTING_LABELS[e.field] ?? e.field);
+  const keys = [...new Set(errors.map((e) => settingKey(e.field)))];
+  const names = keys.map((key) => SETTING_LABELS[key] ?? key);
   return {
     id: 'settings-values',
     level: 'warn',
     title:
-      errors.length === 1
+      names.length === 1
         ? `The ${names[0]} setting is ignored`
-        : `${errors.length} settings are ignored`,
+        : `${names.length} settings are ignored`,
     detail:
       `settings.yaml holds a value the site cannot use for: ${names.join(', ')}. ` +
-      'It falls back to the default instead. Open the setting to see what it expects.',
-    settingsSection: SETTING_SECTIONS[errors[0].field],
+      'The site uses a default or the nearest allowed value instead. Open the setting to see what it expects.',
+    settingsSection: SETTING_SECTIONS[keys[0]],
   };
 }
 

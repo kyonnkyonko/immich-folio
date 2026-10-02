@@ -100,6 +100,7 @@ export const fr: Dictionary = {
       seconds
         ? `Trop de tentatives. Veuillez réessayer dans ${seconds} ${seconds === 1 ? 'seconde' : 'secondes'}.`
         : 'Trop de tentatives. Veuillez réessayer plus tard.',
+    legalNavAria: 'Informations légales',
   },
 
   about: {
@@ -134,7 +135,6 @@ export const fr: Dictionary = {
     title: 'Journal',
     kicker: 'Récits & essais',
     subtitle: 'Essais photographiques, récits visuels et notes de terrain.',
-    description: 'Essais photographiques, récits de voyage et coulisses.',
     entryDescription: 'Article du journal',
     empty: 'Aucun article publié pour le moment.',
     readStory: 'Lire le récit →',
@@ -189,6 +189,14 @@ export const fr: Dictionary = {
     shortcutCopyLink: 'Copier le lien de cette photo',
     shortcutList: 'Cette liste',
     shortcutClose: 'Fermer la visionneuse',
+    zoomIn: 'Zoomer en pleine résolution',
+    zoomInTitle: 'Zoomer en pleine résolution (+ ou double-clic)',
+    zoomOut: 'Ajuster la photo à l’écran',
+    zoomOutTitle: 'Ajuster à l’écran (0 ou Échap)',
+    zoomLoading: 'Chargement de la pleine résolution…',
+    zoomUnavailable: 'La pleine résolution n’est pas disponible pour cette photo.',
+    shortcutZoom: 'Zoom avant / arrière',
+    shortcutZoomReset: 'Ajuster à l’écran',
   },
 
   proofing: {

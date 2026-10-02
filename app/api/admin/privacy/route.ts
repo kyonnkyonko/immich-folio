@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { withAdmin } from '@/lib/admin/withAdmin';
 import { atomicWrite } from '@/lib/atomicWrite';
 import {
+  needsBackup,
   VersionConflictError,
   assertVersion,
   baseVersionFrom,
@@ -17,6 +18,8 @@ import {
 import { getConfig } from '@/lib/config';
 import { env } from '@/lib/env';
 import { PRIVACY_FILENAME, processingFacts, readPrivacy, starterHeadings } from '@/lib/privacy';
+import { listSessions } from '@/lib/proofSessions';
+import { webhookUrl } from '@/lib/proofWebhook';
 
 const CONTENT_DIR = path.resolve(process.cwd(), 'content');
 const MAX_BACKUPS = 10;
@@ -35,6 +38,12 @@ export const GET = withAdmin(async () => {
       !!config.sitePassword ||
       config.subpages.some((sp) => !!sp.password) ||
       Object.values(config.albumPasswords).some(Boolean),
+    // An unreadable proofing.json may still hold client data: report it.
+    hasProofingLinks: await listSessions().then(
+      (sessions) => sessions.length > 0,
+      () => true,
+    ),
+    proofingWebhookUrl: webhookUrl(),
   });
   // Read before the text: a save landing between the two then makes the
   // version stale, which costs a spurious conflict, never a missed one.
@@ -70,15 +79,8 @@ export const PUT = withAdmin(async (request: Request) => {
 
       // Same rule as the about route (#630): only a missing file means there is
       // nothing to back up. Any other failure aborts before the live file changes.
-      let fileExists = true;
-      try {
-        await fs.access(filePath);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-        fileExists = false;
-      }
-
-      if (fileExists) {
+      // A save that changes nothing takes no backup either (needsBackup).
+      if (await needsBackup(filePath, content)) {
         const backupDir = path.join(CONTENT_DIR, '.backups');
         await fs.mkdir(backupDir, { recursive: true });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');

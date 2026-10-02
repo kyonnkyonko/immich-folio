@@ -1,85 +1,13 @@
 import type { ThemeConfig, SettingsYaml } from './schema';
+import { PRESET_REGISTRY } from './presets.ts';
 
 /** The preset used when none is configured. */
 export const DEFAULT_PRESET = 'studio-modern';
 
-export const THEME_PRESETS: Record<string, ThemeConfig> = {
-  'studio-modern': {
-    preset: 'studio-modern',
-    accent: '#e60012',
-    fonts: { heading: 'Archivo', body: 'Archivo', caption: 'IBM Plex Mono' },
-    radius: 0,
-    photoFrame: 'none',
-    grain: false,
-    headerDot: true,
-    heroStyle: 'split',
-  },
-  studio: {
-    preset: 'studio',
-    accent: '#e60012',
-    fonts: { heading: 'Playfair Display', body: 'DM Sans', caption: 'EB Garamond' },
-    radius: 0,
-    photoFrame: 'passepartout',
-    grain: true,
-    headerDot: true,
-    heroStyle: 'split',
-  },
-  minimal: {
-    preset: 'minimal',
-    accent: '#000000',
-    accentDark: '#ffffff',
-    fonts: { heading: 'Geist', body: 'Geist', caption: 'IBM Plex Mono' },
-    radius: 0,
-    photoFrame: 'none',
-    grain: false,
-    headerDot: false,
-    heroStyle: 'fullbleed',
-  },
-  editorial: {
-    preset: 'editorial',
-    accent: '#8B2500',
-    accentDark: '#d9602a',
-    fonts: { heading: 'Bodoni Moda', body: 'Newsreader', caption: 'Spectral' },
-    radius: 0,
-    photoFrame: 'shadow',
-    grain: false,
-    headerDot: false,
-    heroStyle: 'split',
-  },
-  classic: {
-    preset: 'classic',
-    accent: '#c49a3c',
-    accentLight: '#8d6f2b',
-    fonts: { heading: 'Cinzel', body: 'Crimson Pro', caption: 'Crimson Pro' },
-    radius: 12,
-    photoFrame: 'passepartout',
-    grain: false,
-    headerDot: true,
-    heroStyle: 'minimal',
-  },
-  noir: {
-    preset: 'noir',
-    accent: '#ff6b35',
-    accentLight: '#c2410c',
-    fonts: { heading: 'Libre Baskerville', body: 'Source Sans 3', caption: 'Space Mono' },
-    radius: 0,
-    photoFrame: 'passepartout',
-    grain: true,
-    headerDot: false,
-    heroStyle: 'fullbleed',
-  },
-  monograph: {
-    preset: 'monograph',
-    accent: '#333333',
-    accentDark: '#c8c8c8',
-    fonts: { heading: 'Instrument Serif', body: 'Inter', caption: 'IBM Plex Mono' },
-    radius: 0,
-    photoFrame: 'none',
-    grain: false,
-    headerDot: false,
-    heroStyle: 'typographic',
-  },
-};
+/** Every built-in preset by id, derived from PRESET_REGISTRY (lib/config/presets.ts). */
+export const THEME_PRESETS: Record<string, ThemeConfig> = Object.fromEntries(
+  PRESET_REGISTRY.map((p) => [p.id, { preset: p.id, ...p.theme }]),
+);
 
 export const VALID_PHOTO_FRAMES = ['none', 'passepartout', 'shadow'];
 export const VALID_HERO_STYLES = [
@@ -109,7 +37,7 @@ export const VALID_LAYOUTS = [
  * side of this field, are already checked against an allowlist; this is the
  * same treatment for the one numeric scalar in ThemeConfig.
  */
-const THEME_RADIUS_MAX = 64; // Presets top out at 16; generous but not unbounded.
+export const THEME_RADIUS_MAX = 64; // Presets top out at 16; generous but not unbounded.
 function resolveRadius(raw: unknown, fallback: number): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
   return Math.min(THEME_RADIUS_MAX, Math.max(0, raw));
@@ -185,6 +113,50 @@ export function onAccent(accent: string): string {
   const toWhite = contrastRatio(accent, '#ffffff');
   if (toBlack === null || toWhite === null) return '#ffffff';
   return toBlack > toWhite ? '#000000' : '#ffffff';
+}
+
+/**
+ * The surfaces accent-coloured text is checked against, one per mode: the
+ * lightest dark surface (`--bg-card-hover` of the brightest dark preset,
+ * rounded up) and the darkest light one (`--bg-secondary` of the studio
+ * light palette, rounded down). Clearing these clears every other surface of
+ * the same mode.
+ */
+const ACCENT_TEXT_SURFACE = { dark: '#262626', light: '#e8e8e3' } as const;
+const AA_TEXT = 4.5;
+
+function mixHex(a: string, b: string, weightB: number): string {
+  const channel = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return (
+    '#' +
+    [0, 1, 2]
+      .map((i) => Math.round(channel(a, i) * (1 - weightB) + channel(b, i) * weightB))
+      .map((c) => c.toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+
+/**
+ * Text in the accent colour (`--accent-text`), lifted to AA. A fill can be any
+ * accent: `--on-accent` picks the text on top of it. Text *in* the accent
+ * cannot choose its background, and the preset reds measured 3.5–3.7:1 on the
+ * dark pages (#e60012 on #121212). The accent is mixed toward white on dark
+ * and toward black on light, in 5% steps (the same mix `color-mix(in srgb)`
+ * makes), until it reaches 4.5:1 on that mode's worst surface — so an accent
+ * that already passes is returned unchanged, and every accent terminates at
+ * white or black at the latest. A non-hex value is returned as it is.
+ */
+export function accentText(accent: string, mode: 'dark' | 'light'): string {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(accent.trim());
+  if (!m) return accent;
+  const hex = '#' + (m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1]).toLowerCase();
+  const surface = ACCENT_TEXT_SURFACE[mode];
+  const target = mode === 'dark' ? '#ffffff' : '#000000';
+  for (let step = 0; step <= 20; step++) {
+    const candidate = mixHex(hex, target, step / 20);
+    if ((contrastRatio(candidate, surface) ?? 0) >= AA_TEXT) return candidate;
+  }
+  return target;
 }
 
 /** `String(theme.grain)`/`String(theme.headerDot)` become a `data-*` attribute

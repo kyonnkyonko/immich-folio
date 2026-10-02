@@ -28,7 +28,7 @@ vi.mock('@/lib/cache', () => ({
   cache: { get: () => undefined, set: () => {} },
 }));
 
-import { getMapData } from '@/lib/mapService';
+import { getMapData, visibleMapCounts } from '@/lib/mapService';
 import { listedAlbumIds } from '@/lib/config/schema';
 
 const ALBUM = { id: 'album-1', albumName: 'Trip', slug: 'trip' };
@@ -69,6 +69,24 @@ describe('getMapData coordinate filtering (#635)', () => {
 
     expect(locations).toHaveLength(1);
     expect(locations[0].albums[0].photoCount).toBe(1);
+  });
+
+  it('carries the cover’s edit state for its image URL (#831)', async () => {
+    const place = { latitude: 52.5, longitude: 13.4, city: 'Berlin', country: 'Germany' };
+    getAlbum.mockResolvedValue({
+      id: ALBUM.id,
+      assets: [{ ...asset('a', place), isEdited: true, updatedAt: '2026-09-04T19:22:09.220Z' }],
+    });
+    const [edited] = await getMapData();
+    expect(edited.albums[0].coverAssetId).toBe('a');
+    expect(edited.albums[0].coverEdit).toEqual({
+      isEdited: true,
+      updatedAt: '2026-09-04T19:22:09.220Z',
+    });
+
+    getAlbum.mockResolvedValue({ id: ALBUM.id, assets: [asset('b', place)] });
+    const [plain] = await getMapData();
+    expect(plain.albums[0].coverEdit).toBeUndefined();
   });
 
   it('still excludes a photo with no coordinates at all', async () => {
@@ -189,5 +207,44 @@ describe('listedAlbumIds', () => {
     });
 
     expect([...ids].sort()).toEqual(['s', 'shared', 'v']);
+  });
+});
+
+/**
+ * The /map header counted protected subpages and albums that /api/map drops
+ * for a viewer who has not unlocked them, so the numbers did not match the map.
+ */
+describe('visibleMapCounts', () => {
+  const site = {
+    standaloneAlbums: ['solo', 'locked-solo'],
+    subpages: [
+      { slug: 'travel', albumIds: ['t1', 't2'], enabled: true },
+      { slug: 'clients', albumIds: ['c1'], enabled: true },
+      { slug: 'offline', albumIds: ['o1'], enabled: false },
+      { slug: 'secret', albumIds: ['h1'], enabled: true, hidden: true },
+    ],
+  };
+  const lockedKeys = new Set(['subpage:clients', 'album:locked-solo', 'album:t2']);
+  const locked = (key: string, type: 'subpage' | 'album') => !lockedKeys.has(`${type}:${key}`);
+
+  it('counts everything listed when nothing is locked', () => {
+    expect(visibleMapCounts(site, () => true)).toEqual({ collections: 2, albums: 5 });
+  });
+
+  it('leaves out locked subpages, their albums and locked albums', () => {
+    // travel (t1), solo — clients, c1, locked-solo and t2 stay locked.
+    expect(visibleMapCounts(site, locked)).toEqual({ collections: 1, albums: 2 });
+  });
+
+  it('gates an album by the same subpage the map links it to', () => {
+    const shared = {
+      standaloneAlbums: [],
+      subpages: [
+        { slug: 'clients', albumIds: ['x'], enabled: true },
+        { slug: 'travel', albumIds: ['x'], enabled: true },
+      ],
+    };
+    // /api/map gates `x` by `clients`, its first listed subpage.
+    expect(visibleMapCounts(shared, locked).albums).toBe(0);
   });
 });

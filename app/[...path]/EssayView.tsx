@@ -14,7 +14,7 @@ import { essayPhotoSequence } from '@/lib/essaySequence';
 import type { PhotoItem } from './PhotoGrid';
 import './essay.css';
 import { useDictionary } from '@/components/I18nProvider';
-import { formatJournalDate } from '@/lib/journalDate';
+import { formatJournalDate, journalDateTime } from '@/lib/journalDate';
 
 /**
  * The map block is the only thing in an essay that needs Leaflet, and most
@@ -145,7 +145,7 @@ function EssayViewContent({
               background: 'none',
               border: 'none',
               cursor: 'pointer',
-              color: isFav ? '#ff4d4f' : 'rgba(255,255,255,0.85)',
+              color: isFav ? 'var(--lightbox-fav)' : 'rgba(255,255,255,0.85)',
               filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))',
             }}
           >
@@ -253,7 +253,7 @@ function EssayViewContent({
                       background: 'none',
                       border: 'none',
                       cursor: 'pointer',
-                      color: isFav ? '#ff4d4f' : 'rgba(255,255,255,0.85)',
+                      color: isFav ? 'var(--lightbox-fav)' : 'rgba(255,255,255,0.85)',
                       filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))',
                     }}
                   >
@@ -409,16 +409,19 @@ function EssayViewContent({
   // The story's photos that are selected, not the whole stored set (see PhotoGrid).
   const selectedCount = proofing ? proofing.getSelectedTokens().length : 0;
 
+  const dateText = formatJournalDate(essay.frontmatter.date, t.dateLocale);
+  const dateTime = journalDateTime(essay.frontmatter.date);
+
   return (
     <div className="essay-container">
       <header className="essay-header">
         {displayTitle && <h1 className="essay-header__title">{displayTitle}</h1>}
         {displaySubtitle && <p className="essay-header__subtitle">{displaySubtitle}</p>}
-        {(essay.frontmatter.author || essay.frontmatter.date) && (
+        {(essay.frontmatter.author || dateText) && (
           <div className="essay-header__meta">
-            {[essay.frontmatter.author, formatJournalDate(essay.frontmatter.date, t.dateLocale)]
-              .filter(Boolean)
-              .join(' • ')}
+            {essay.frontmatter.author}
+            {essay.frontmatter.author && dateText && ' • '}
+            {dateText && (dateTime ? <time dateTime={dateTime}>{dateText}</time> : dateText)}
           </div>
         )}
       </header>
@@ -465,7 +468,7 @@ function EssayViewContent({
             alignItems: 'center',
             gap: '12px',
             padding: '8px 16px',
-            borderRadius: '30px',
+            borderRadius: 'var(--radius-lg)',
             background: 'var(--bg-card, #1e1e1e)',
             color: 'var(--text-primary, #ffffff)',
             border: '1px solid var(--border-subtle, rgba(255,255,255,0.15))',

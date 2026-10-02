@@ -3,6 +3,9 @@ import { withAdmin } from '@/lib/admin/withAdmin';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getConfig, slugify } from '@/lib/config';
+// From the pure schema module, like lib/auth.ts: tests stub the config barrel.
+import { resolveZoom } from '@/lib/config/schema';
+import { ZOOM_CONTENT_TYPES, zoomSourceFor } from '@/lib/zoomSource';
 import { env } from '@/lib/env';
 import { listJournalEntries } from '@/lib/admin/journal-service';
 import { readSettingsYaml } from '@/lib/admin/yaml-service';
@@ -11,6 +14,8 @@ import { readPrivacy } from '@/lib/privacy';
 import { listPageSlugsSync } from '@/lib/admin/pages-service';
 import { takenPageSlugs } from '@/lib/admin/pageSlugs';
 import { describeCollision, menuPageSlugs, pageSlugCollision } from '@/lib/pages';
+import { immich } from '@/lib/immich';
+import { isLocationScrubbable } from '@/lib/locationScrub';
 import {
   checkAlbumIds,
   checkAlbumSlugCollisions,
@@ -20,21 +25,26 @@ import {
   checkImmichCalls,
   checkContact,
   checkContentPages,
+  checkDownloadMetadata,
   checkLegal,
   checkPrivacy,
   checkSettingValues,
   checkPasswords,
   checkProxyHops,
   checkWritable,
+  checkZoomRenditions,
   countForwardedHops,
   PROXY_MARKER_HEADERS,
   worstLevel,
   type AlbumRef,
   type AlbumSlugGroup,
   type DoctorFinding,
+  type DownloadAlbumRef,
   type ContactRef,
   type LegalRef,
   type PasswordRef,
+  type ZoomAlbumRef,
+  type ZoomRenditionSample,
 } from '@/lib/admin/doctor';
 
 /**
@@ -130,6 +140,81 @@ export const GET = withAdmin(async (request: NextRequest) => {
         })),
       ];
       findings.push(checkAlbumSlugCollisions(slugGroups, config.albumOverrides, albums, slugify));
+
+      // Originals whose metadata a download cannot clean. Through the album
+      // cache, like the alt-text report; an album that cannot be read is
+      // already reported above and is skipped here.
+      const downloadAlbums: DownloadAlbumRef[] = [];
+      for (const id of config.albums.filter((albumId) => config.albumDownloads?.[albumId])) {
+        try {
+          const album = await immich.getAlbum(id);
+          if (!album) continue;
+          const uncleanable = album.assets.filter((asset) => !isLocationScrubbable(asset));
+          downloadAlbums.push({
+            id,
+            albumName: album.albumName,
+            uncleanable: uncleanable.length,
+            uncleanableWithLocation: uncleanable.filter(
+              (asset) => asset.exifInfo?.latitude != null && asset.exifInfo?.longitude != null,
+            ).length,
+          });
+        } catch {
+          // Immich unreachable: the connection check says so.
+        }
+      }
+      const downloads = checkDownloadMetadata(downloadAlbums);
+      if (downloads) findings.push(downloads);
+
+      // Lightbox zoom (#467): photos a browser cannot show need Immich's
+      // full-size rendition. Whether Immich has them is only known by asking,
+      // so one such photo is sampled. "On" here means on for any route to the
+      // album, standalone or through an enabled subpage.
+      const zoomAlbums: ZoomAlbumRef[] = [];
+      let renditionSample: ZoomRenditionSample | null = null;
+      try {
+        const zoomOn = (albumId: string) =>
+          (config.standaloneAlbums.includes(albumId) && resolveZoom(config, albumId)) ||
+          config.subpages.some(
+            (sp) =>
+              sp.enabled !== false &&
+              sp.albumIds.includes(albumId) &&
+              resolveZoom(config, albumId, sp),
+          );
+        let sample: string | undefined;
+        for (const id of config.albums.filter(zoomOn)) {
+          try {
+            const album = await immich.getAlbum(id);
+            if (!album) continue;
+            const viaRendition = album.assets.filter(
+              (asset) => zoomSourceFor(asset) === 'fullsize',
+            );
+            sample ??= viaRendition[0]?.id;
+            zoomAlbums.push({ id, albumName: album.albumName, needRendition: viaRendition.length });
+          } catch {
+            // Immich unreachable: the connection check says so.
+          }
+        }
+        if (sample) {
+          try {
+            const rendition = await immich.streamFullsize(sample);
+            if (!rendition) {
+              renditionSample = 'missing';
+            } else {
+              await (rendition.stream as ReadableStream).cancel().catch(() => {});
+              // The zoom route serves only what it can scrub: a WebP rendition
+              // exists, and is still refused.
+              const type = rendition.contentType.toLowerCase().split(';')[0].trim();
+              renditionSample = ZOOM_CONTENT_TYPES.has(type) ? 'ok' : { contentType: type };
+            }
+          } catch {
+            // Unknown; reported as nothing rather than as a false alarm.
+          }
+        }
+      } catch {
+        // Best-effort, like every check here: no finding rather than no report.
+      }
+      const zoomFinding = checkZoomRenditions(zoomAlbums, renditionSample);
+      if (zoomFinding) findings.push(zoomFinding);
     }
   }
 

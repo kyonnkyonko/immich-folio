@@ -18,6 +18,8 @@ For the quick path — clone, `npm run dev`, open `/install` — see the
 - [Behaviour when Immich is Unreachable](#behaviour-when-immich-is-unreachable)
 - [Reverse Proxy](#reverse-proxy)
 - [CDN Mode](#cdn-mode)
+- [Edits made in Immich](#edits-made-in-immich)
+- [Colour Profiles](#colour-profiles)
 
 ## What the Setup Wizard Writes
 
@@ -230,8 +232,9 @@ Folio URL, then:
 
 - **Cache `/api/image/*` and `/api/video/*`**, and nothing else. Pages are
   rendered per request, and other routes check cookies.
-- **Include the full query string in the cache key.** `size`, `w` and the
-  `IMAGE_CACHE_VERSION` buster `v` all select a different file.
+- **Include the full query string in the cache key.** `size`, `w`, the edit
+  marker `e` and the `IMAGE_CACHE_VERSION` buster `v` all select a different
+  file.
 - **Respect the origin's `Cache-Control`.** Photos come back
   `public, max-age=31536000, immutable`; errors (429, 503, 404) come back
   `no-store` and must not be cached.
@@ -256,7 +259,63 @@ links, not the image URLs themselves.
 
 **Changing a photo.** A CDN keeps immutable responses for as long as a browser
 does. Bump `IMAGE_CACHE_VERSION` after regenerating thumbnails in Immich, which
-changes every URL at once, or purge the CDN.
+changes every URL at once, or purge the CDN. Edits made in Immich's editor need
+neither: see [Edits made in Immich](#edits-made-in-immich).
 
 The Content-Security-Policy allows the CDN's origin for `img-src` and
 `media-src` automatically.
+
+## Edits made in Immich
+
+Photos edited in Immich's own editor (crop, rotate) appear as edited
+everywhere: in the grid, the lightbox, the zoom, share images, the map and
+downloads. Immich keeps an edit apart from the file and applies it only when
+asked to, so Folio always asks for the edited rendition (for a photo that is
+not edited, Immich returns the same file either way; the parameter exists
+since Immich 2.5, below the 3.0 that Folio requires), and lays the grid out
+with the edited proportions.
+
+The image URL of an edited photo carries an extra `e` parameter, derived from
+when the photo last changed in Immich, to the second. Image responses are cached as
+`immutable` for a year and the asset ID stays the same through an edit, so
+without it browsers and CDNs would keep showing the photo as it was before.
+Only edited photos get a new URL; all other URLs stay as they are. A later
+edit changes the parameter again, once Folio's album cache has picked it up
+(`CACHE_TTL`).
+
+Downloads of an edited photo are Immich's rendition of the edit: a
+full-resolution JPEG without EXIF, named `.jpg`. Should Immich hand out the
+edit in a format the location scrubber does not handle (WebP, PNG), the photo
+is not downloaded rather than sent unchecked; a ZIP goes on without it and the
+server log names it.
+
+## Colour Profiles
+
+Visitors only ever get Immich's own renditions: the `thumbnail` for grid tiles
+and the `preview` for everything larger. Folio streams those bytes unchanged.
+It never decodes or re-encodes a photo, so whatever colour profile Immich
+embeds is what the browser sees, and colour fidelity is decided by how Immich
+builds its renditions.
+
+Immich's relevant setting is `image.colorspace` (Administration → Settings →
+Image Settings), `p3` by default. Measured on Immich 3.2.0 with `p3`, thumbnail
+as WebP and preview as JPEG:
+
+| Original                                         | Thumbnail                    | Preview                      | Colours                  |
+| ------------------------------------------------ | ---------------------------- | ---------------------------- | ------------------------ |
+| JPEG, sRGB ICC profile                           | sRGB                         | sRGB                         | correct                  |
+| HEIC from an iPhone, Display P3 ICC profile      | Display P3                   | Display P3                   | correct, wide gamut kept |
+| AVIF, no ICC profile, CICP (`nclx`) BT.2020 tags | sRGB (P3 for an iPhone shot) | sRGB (P3 for an iPhone shot) | 13–37% less saturated    |
+
+The last row is a loss in Immich, not in Folio. Immich ignores the CICP colour
+description of these AVIF files and labels the BT.2020 pixel values as sRGB (or
+Display P3) without converting them, so the browser shows them flatter than the
+original (mean chroma, compared with the decoded original). The files measured
+were AVIF exports, two of them confirmably from Lightroom. Exporting with an
+embedded ICC profile, or as JPEG or HEIC, should avoid it, since ICC-tagged
+originals came through correctly, but that has not been tested. Adobe RGB
+originals were not part of the measurement.
+
+After changing `image.colorspace` or replacing originals, regenerate thumbnails
+in Immich and bump `IMAGE_CACHE_VERSION`, since browsers and CDNs keep the old
+renditions as `immutable`.

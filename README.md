@@ -13,7 +13,7 @@
 
 A self-hosted portfolio powered by [Immich](https://immich.app). It acts as a **secure reverse proxy** between your visitors and your private Immich instance: your Immich server stays on your local network, completely invisible to the outside world, while your albums are published as a gallery you control.
 
-**Latest: v0.19.1** — private proofing links for clients, custom content pages and a round of security fixes. → [What's New](#whats-new)
+**Latest: v0.20.0** — 1:1 zoom in the lightbox, five new theme presets, Immich edits shown as edited, and no GPS in downloads. → [What's New](#whats-new)
 
 ## Contents
 
@@ -40,7 +40,7 @@ A self-hosted portfolio powered by [Immich](https://immich.app). It acts as a **
 - **Justified rows** _(experimental)_ — every row fills the width at one shared height, aspect ratios intact, nothing cropped
 - **Per-subpage grid overrides** — each subpage can define its own columns, gap, aspect ratio, and layout mode, and individual albums can override that again _(experimental)_
 - **Cover focal points** _(experimental)_ — decide which part of a cover survives the crop
-- **Fullscreen lightbox** — keyboard and swipe navigation, EXIF panel, adjacent image preloading
+- **Fullscreen lightbox** — keyboard and swipe navigation, EXIF panel, adjacent image preloading, and opt-in 1:1 zoom to full resolution for checking sharpness ([guide](docs/gallery-config.md#photo-zoom))
 - **EXIF metadata on hover** — camera body, lens, focal length, aperture, shutter speed, ISO shown directly on the grid
 - **ThumbHash placeholders** — instant blurred previews while full images load
 
@@ -66,9 +66,9 @@ A self-hosted portfolio powered by [Immich](https://immich.app). It acts as a **
 - **Unlisted subpages** _(experimental)_ — reachable by direct link, absent from the navigation
 - **Subpage on/off toggle** — take a page offline without deleting it
 - **External navigation links** _(experimental)_ — point the header at a shop, a blog, or a social profile
-- **Client proofing** — clients favorite photos and export the selection; picks are encoded in the URL, nothing is stored server-side
+- **Client proofing** — clients favorite photos and export the selection; picks stay in the visitor's browser and the URL, with nothing stored server-side (proofing links, below, do save them)
 - **Client proofing links** — a private link per client and album, picks saved server-side, a submit that locks the selection and pings you via webhook, expiry dates, download limits, and a Lightroom-ready export of the chosen file names ([guide](docs/gallery-config.md#client-proofing-links))
-- **Originals delivery** — per-album opt-in lets visitors download a whole album or their proofing selection as a ZIP of the originals
+- **Originals delivery** — per-album opt-in lets visitors download a whole album or their proofing selection as a ZIP of the originals, with GPS coordinates removed from JPEG, HEIC and AVIF files
 - **Lightbox watermark** — configurable overlay on fullscreen images
 - **Six interface languages** — English, German, French, Spanish, Italian and Dutch for everything visitors see
 - **Privacy-friendly analytics** — cookieless view counts, no third parties, can be switched off
@@ -261,7 +261,7 @@ Long-form storytelling with fullbleed photos, side-by-side pairs and grids, quot
 
 ### Theming
 
-Seven built-in presets with distinct visual identities — or mix and match with fine-grained control over colors, fonts, corners, photo frames, hero layout, and grid style.
+Twelve built-in presets with distinct visual identities — or mix and match with fine-grained control over colors, fonts, corners, photo frames, hero layout, and grid style.
 
 **Studio Modern** is the default: Leica precision rebuilt around the Archivo grotesque, with IBM Plex Mono for every piece of photographic metadata, hairline rules, zero radius, and red as signal only.
 
@@ -272,7 +272,8 @@ Seven built-in presets with distinct visual identities — or mix and match with
 <p align="center"><em>Studio Modern, dark and light — every preset ships both, and visitors switch with a toggle in the navigation bar.</em></p>
 
 ```yaml
-theme: studio-modern # or: studio, minimal, editorial, classic, noir, monograph
+theme: studio-modern # or: studio, minimal, editorial, classic, noir, monograph,
+#   kunsthalle, ma, cyanotype, salon, birch
 ```
 
 → **[View all Themes & Configuration Guide](docs/theming.md)**
@@ -344,15 +345,15 @@ own password, separate from any album passwords, and writes straight to
 
 ## What's New
 
-v0.19.0 — client proofing links, content pages and a big quality pass:
+v0.20.0 — zoom, five new presets and photos as you edited them:
 
-- **Private proofing links for clients** — one link per client and album, with an optional expiry, download limit and ZIP; the selection is saved on the server, the client submits it, and you export the picks as a Lightroom or Capture One filter
-- **Custom content pages** — `content/pages/<slug>.md` pages (pricing, workshops, anything) written in the journal editor and placed in the menu next to your subpages
-- **A calmer admin** — library search and multi-select in the photo picker, a warning instead of a silent overwrite when a file changed elsewhere, settings from the environment shown as locked, and invalid values refused on save
-- **Better on phones and in light mode** — no sideways scrolling, a menu whenever the navigation does not fit, readable lightbox controls, and an accessibility baseline (reduced motion, focus handling, touch targets)
-- **Security fixes** — media URLs stop working once a photo leaves the site, offline subpages are unpublished everywhere, and the sitemap skips protected journal entries ([advisories](https://github.com/ralksta/immich-folio/security/advisories))
+- **1:1 zoom in the lightbox** — double-click, pinch or press `+` to see a photo at full resolution and judge its sharpness; off by default, switched on for the site, a page or a single album ([guide](docs/gallery-config.md#photo-zoom))
+- **Five new theme presets** — Kunsthalle (a grey gallery wall with numbered wall labels), Ma, Cyanotype, Salon and Birch, each in dark and light; the passepartout mat of Studio, Classic and Noir is finally visible too
+- **Edits made in Immich show up** — crops and rotations from Immich's editor appear in the grid, the lightbox, share images and downloads
+- **No GPS in downloads** — original downloads and ZIPs keep camera data and colour profile but lose the coordinates and sub-city place names ([advisory](https://github.com/ralksta/immich-folio/security/advisories/GHSA-g4xf-4285-4cv4))
+- **Legal pages on a locked site** — with a site password set, the Impressum, the privacy page and the contact form stay reachable, and unknown pages answer a real 404
 
-**Upgrade note:** image URLs change once (browser and CDN caches refill by themselves), at most two ZIP downloads run at once per visitor — set `TRUSTED_PROXY_HOPS` behind a reverse proxy — and changes made inside Immich now show after `CACHE_TTL` or _Clear cache_. Details in the [changelog](CHANGELOG.md).
+**Upgrade note:** zoom needs `zoom: true`, and for HEIC/RAW photos Immich's _Full-size image_ setting in JPEG format. If you build the Docker image yourself, keep `content/` mounted as a volume; if you ever pushed a self-built image, see the [changelog](CHANGELOG.md) for what to rotate.
 
 Security fixes ship in normal releases, so **running the latest release is the
 recommended baseline**.

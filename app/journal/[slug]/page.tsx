@@ -9,12 +9,14 @@ import { isAuthenticated } from '@/lib/auth';
 import { journalNeighbours } from '@/lib/journalNav';
 import { getConfig } from '@/lib/config';
 import { imageUrl } from '@/lib/urls';
+import { immich } from '@/lib/immich';
 import { EssayView } from '@/app/[...path]/EssayView';
 import { JournalNav } from '@/components/JournalNav';
 import PasswordGate from '@/components/PasswordGate';
 import { BackLink } from '@/components/BackLink';
 import { getServerDictionary } from '@/lib/i18n/server';
 import crypto from 'crypto';
+import '../journal.css';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,12 +52,18 @@ export async function generateMetadata({ params }: JournalDetailPageProps): Prom
 
   const title = blocked ? t.journal.title : frontmatter.title || slug;
   const description = blocked
-    ? t.journal.description
+    ? t.journal.subtitle
     : frontmatter.subtitle || t.journal.entryDescription;
 
+  // The cover's asset for its edit marker (#831); the page body asks for the
+  // same one, from the same cache.
+  const coverAsset =
+    !blocked && frontmatter.coverAssetId
+      ? await immich.getAssetInfo(frontmatter.coverAssetId).catch(() => null)
+      : null;
   const ogImages =
     !blocked && frontmatter.coverAssetId
-      ? [{ url: imageUrl(frontmatter.coverAssetId, 'preview') }]
+      ? [{ url: imageUrl(coverAsset ?? frontmatter.coverAssetId, 'preview') }]
       : [];
 
   return {
@@ -178,6 +186,14 @@ export default async function JournalDetailPage({ params }: JournalDetailPagePro
     <div style={{ paddingTop: '2rem' }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '0 1.5rem 1rem' }}>
         <BackLink href="/journal" label={getServerDictionary().common.backToJournal} />
+        {/* Only an admin gets this far with a draft. The index marks it; the
+            entry itself looked published, which is exactly what a draft
+            preview must not look like. */}
+        {frontmatter.draft && (
+          <span className="journal-card__draft-badge" style={{ marginLeft: '1rem' }}>
+            {getServerDictionary().journal.draft}
+          </span>
+        )}
       </div>
       <EssayView
         essay={essayForClient}
