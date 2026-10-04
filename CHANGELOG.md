@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases up to and including v0.9.2 are documented in the
 [GitHub releases](https://github.com/ralksta/immich-folio/releases).
 
+## [0.20.1] — 2026-10-04
+
+### Changed
+
+- **A single click zooms the lightbox photo in by 1.5×**
+  ([#835](https://github.com/ralksta/immich-folio/pull/835)). The first
+  version of zoom needed a double-click and went straight to 1:1, which was
+  more than visitors wanted when they only wanted a closer look. A click now
+  zooms to 1.5× around the cursor and a second click returns to fit. A press
+  that moves more than 10 px or is held longer than half a second is a pan, so
+  dragging a zoomed photo no longer drops out of the zoom. Ctrl and wheel,
+  pinch, touch double-tap, the magnifier button (still 1:1) and `+`, `-`, `0`
+  and `Esc` work as before.
+
+### Fixed
+
+- **Photo zoom and originals download need the `asset.download` permission**
+  on the Immich API key, which the setup guide never said. Zoom into a JPEG or
+  AVIF, the single download and both ZIPs stream `/assets/:id/original`, and
+  Immich answers `403` to a key that only has `asset.read` and `asset.view`.
+  The README permission table (which also credited `asset.read` with
+  originals), the photo zoom and originals download sections of the gallery
+  guide and the setup wizard hint now name it, and the log says so when a
+  `403` hits an original. Nothing changes for a site that uses neither
+  feature. Reported by a user who had to widen their key after enabling zoom.
+
 ## [0.20.0] — 2026-10-02
 
 ### Security

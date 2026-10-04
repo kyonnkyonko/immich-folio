@@ -262,6 +262,9 @@ albums:
       download: true
 ```
 
+The API key needs the `asset.download` permission in Immich, since originals
+are streamed from `/assets/:id/original`.
+
 Once enabled, visitors get a **Download album** link in the album header (every
 original as a ZIP), and — where [client proofing](#client-proofing) is on — a
 **Download selected (.zip)** action in the export dialog that zips just the
@@ -762,13 +765,15 @@ In the admin panel the switch is under **Settings › General › Portfolio
 Features**, and the page and album drawers in the page builder have an
 _Inherit / On / Off_ choice.
 
-**Using it.** Double-click (or double-tap) zooms to 1:1 around the point
-clicked and back to fit; so does the magnifier button in the lightbox bar.
-Pinch, or Ctrl + scroll wheel / trackpad pinch, zooms continuously between fit
-and 1:1 — never further, since enlarging past 1:1 only interpolates pixels and
-makes good focus look soft. Drag (or one finger) pans; `+` / `-` step, `0` and
-`Esc` go back to fit (a second `Esc` closes the viewer). Swiping to the next
-photo is off while zoomed, and changing photos resets the zoom.
+**Using it.** A click on the photo zooms in by half (1.5× the fit size)
+around the point clicked, and a second click goes back to fit. Double-tap on a
+touch screen, or the magnifier button in the lightbox bar, zooms straight to
+1:1 and back. Pinch, or Ctrl + scroll wheel / trackpad pinch, zooms
+continuously between fit and 1:1 — never further, since enlarging past 1:1
+only interpolates pixels and makes good focus look soft. Drag (or one finger)
+pans; `+` / `-` step, `0` and `Esc` go back to fit (a second `Esc` closes the
+viewer). Swiping to the next photo is off while zoomed, and changing photos
+resets the zoom.
 
 **What is shown.** The full-resolution file is requested only when a visitor
 zooms — never on opening the viewer, and never for the neighbouring photos.
@@ -787,6 +792,13 @@ Location is removed the same way as for [originals download](#originals-download
 GPS coordinates and place names below city level are overwritten in place;
 camera data and colour profile stay. A file whose metadata cannot be read is
 refused rather than sent.
+
+Zoom into a JPEG or AVIF streams the original from Immich, so the API key
+needs the `asset.download` permission (_Account Settings › API Keys_). With
+only `asset.read` and `asset.view`, Immich answers `403` and the lightbox says
+full resolution is unavailable; the Folio log shows
+`Failed to stream … 403`. The same permission covers
+[originals download](#originals-download).
 
 Formats a browser cannot display need Immich's **full-size preview**
 (_Administration › Settings › Image Settings › Full-size image_, JPEG format).
