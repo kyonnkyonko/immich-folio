@@ -27,7 +27,7 @@ export const zh: Dictionary = {
 
   common: {
     backTo: (label: string) => `返回${label}`,
-    backToGallery: '返回相簿',
+    backToGallery: '返回相片集',
     backToJournal: '返回日誌',
     email: '電子郵件',
     website: '網站',
@@ -45,8 +45,8 @@ export const zh: Dictionary = {
     prevEntryAria: (title: string) => `上一篇：${title}`,
     nextEntryAria: (title: string) => `下一篇：${title}`,
     entryNavAria: '日誌導覽',
-    loadingGallery: '相簿載入中',
-    gallery: '相簿',
+    loadingGallery: '相片集載入中',
+    gallery: '相片集',
     loadingPhotos: '照片載入中',
     downloadAlbum: '下載整本相簿',
   },
@@ -71,7 +71,7 @@ export const zh: Dictionary = {
     notAvailable: '這個下載目前無法使用。',
     rateLimited: '下載次數太多，請稍候再試。',
     immichUnavailable: '照片庫目前無法連線，請稍後再試。',
-    back: '返回相簿',
+    back: '返回相片集',
     limitReached: '這個連結的下載次數已達上限。',
   },
 
@@ -82,7 +82,7 @@ export const zh: Dictionary = {
   },
 
   password: {
-    subtitle: '這本相簿需要密碼。',
+    subtitle: '這個相片集需要密碼。',
     siteSubtitle: '這個網站需要密碼。',
     pageSubtitle: '這個頁面需要密碼。',
     journalSubtitle: '這篇日誌需要密碼。',
@@ -134,7 +134,7 @@ export const zh: Dictionary = {
     readStory: '閱讀全文 →',
     minRead: (n: number) => `閱讀時間 ${n} 分鐘`,
     draft: '草稿',
-    by: (author: string) => `文／${author}`,
+    by: (author: string) => `文：${author}`,
     notFound: '找不到',
   },
 
