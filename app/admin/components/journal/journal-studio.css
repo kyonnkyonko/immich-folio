@@ -234,6 +234,12 @@
   gap: 0.75rem;
 }
 
+/* Undo and redo sit together, closer than the other top-bar buttons. */
+.journal-editor-history {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
 .journal-editor-split {
   display: grid;
   /* Left width is driven by the draggable divider; the preview takes the rest. */

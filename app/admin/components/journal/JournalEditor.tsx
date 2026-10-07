@@ -39,6 +39,14 @@ import { StorySettingsModal } from './StorySettingsModal';
 import { PageSettingsPanel } from './PageSettingsPanel';
 import { JournalPreview } from './JournalPreview';
 import { createBlock, createPhotoBlocks, moveBlock } from './blockOps';
+import {
+  emptyHistory,
+  isTextEditingTarget,
+  recordEdit,
+  redoEdit,
+  undoEdit,
+  type UndoHistory,
+} from './undoHistory';
 import { useSplitPane, SPLIT_MIN, SPLIT_MAX } from './splitPane';
 import { useNotify } from '../Notifications';
 
@@ -89,6 +97,9 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
   // Asset Picker State
   const [assetPickerTarget, setAssetPickerTarget] = useState<AssetPickTarget | null>(null);
 
+  /** Undo / redo, up to five steps each way; starts over whenever the entry is (re)loaded. */
+  const [history, setHistory] = useState<UndoHistory>(emptyHistory);
+
   /** Set when the entry could not be fetched; blocks saving over it. */
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -130,6 +141,7 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
         setRawMarkdown(restored ?? md);
         setParsed(parseJournalMarkdown(restored ?? md));
         setDirty(restored !== null);
+        setHistory(emptyHistory());
       } catch (err) {
         console.error('Failed to load journal entry:', err);
         // An empty editor saved over the entry replaces it with nothing, so
@@ -142,24 +154,45 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
     load();
   }, [slug, apiUrl, isPage, loadDraft, reloadKey]);
 
-  // Update markdown and sync blocks
-  const handleMarkdownChange = (newMd: string) => {
-    setRawMarkdown(newMd);
-    setParsed(parseJournalMarkdown(newMd));
+  /**
+   * Every edit goes through here, so each one can be undone. `key` groups a
+   * burst of typing into one step (see undoHistory.ts); without it the edit is
+   * a step of its own.
+   */
+  const applyEdit = (nextMarkdown: string, nextParsed: ParsedJournal, key?: string) => {
+    if (nextMarkdown !== rawMarkdown) {
+      const now = Date.now();
+      setHistory((h) => recordEdit(h, rawMarkdown, now, key));
+    }
+    setParsed(nextParsed);
+    setRawMarkdown(nextMarkdown);
     setDirty(true);
   };
 
+  /** Show a state from the history: unsaved unless it is the file as saved. */
+  const showHistoryState = (step: { value: string; history: UndoHistory } | null) => {
+    if (!step) return;
+    setHistory(step.history);
+    setRawMarkdown(step.value);
+    setParsed(parseJournalMarkdown(step.value));
+    setDirty(step.value !== serverMarkdown.current);
+  };
+  const handleUndo = () => showHistoryState(undoEdit(history, rawMarkdown));
+  const handleRedo = () => showHistoryState(redoEdit(history, rawMarkdown));
+
+  // Update markdown and sync blocks
+  const handleMarkdownChange = (newMd: string) => {
+    applyEdit(newMd, parseJournalMarkdown(newMd), 'markdown');
+  };
+
   // Update structured blocks and sync markdown
-  const handleBlocksChange = (newBlocks: JournalBlock[]) => {
+  const handleBlocksChange = (newBlocks: JournalBlock[], key?: string) => {
     const updated: ParsedJournal = {
       ...parsed,
       blocks: newBlocks,
       referencedAssetIds: collectAssetIds(newBlocks),
     };
-    const serialized = serializeJournalMarkdown(updated);
-    setParsed(updated);
-    setRawMarkdown(serialized);
-    setDirty(true);
+    applyEdit(serializeJournalMarkdown(updated), updated, key);
   };
 
   // Update frontmatter
@@ -171,10 +204,11 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
         ...updates,
       },
     };
-    const serialized = serializeJournalMarkdown(updated);
-    setParsed(updated);
-    setRawMarkdown(serialized);
-    setDirty(true);
+    applyEdit(
+      serializeJournalMarkdown(updated),
+      updated,
+      `frontmatter:${Object.keys(updates).sort().join(',')}`,
+    );
   };
 
   // Save. `override` is markdown to save instead of the editor's — the page
@@ -244,6 +278,7 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
     setRawMarkdown(serverMarkdown.current);
     setParsed(parseJournalMarkdown(serverMarkdown.current));
     setDirty(false);
+    setHistory(emptyHistory());
   };
 
   const restoreConflictingDraft = () => {
@@ -252,19 +287,34 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
     setRawMarkdown(value);
     setParsed(parseJournalMarkdown(value));
     setDirty(true);
+    setHistory(emptyHistory());
   };
 
-  // Keyboard shortcut: Cmd+S / Ctrl+S
+  // Keyboard shortcuts: Cmd+S / Ctrl+S saves; Cmd+Z undoes and Cmd+Shift+Z or
+  // Ctrl+Y redoes — except inside a text field, which keeps its own undo. The
+  // listener stays registered once and calls the handlers of the latest render.
+  const shortcuts = useLatest({ save: handleSave, undo: handleUndo, redo: handleRedo });
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === 's') {
         e.preventDefault();
-        handleSave();
+        shortcuts.current.save();
+        return;
+      }
+      if (isTextEditingTarget(e.target)) return;
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        shortcuts.current.undo();
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault();
+        shortcuts.current.redo();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSave]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shortcuts]);
 
   /*
    * Album blocks are expanded for the preview the way the page expands them,
@@ -320,12 +370,10 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
       frontmatter: { ...parsed.frontmatter, draft: !parsed.frontmatter.draft },
     };
     const serialized = serializeJournalMarkdown(updated);
-    setParsed(updated);
-    setRawMarkdown(serialized);
     // An edit like any other until the save lands: a failed or refused save
     // must leave the flipped flag unsaved, not shown as "Saved" (a success
     // clears it again).
-    setDirty(true);
+    applyEdit(serialized, updated);
     handleSave(serialized);
   };
 
@@ -349,7 +397,8 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
   const handleUpdateBlock = (index: number, updated: JournalBlock) => {
     const blocks = [...parsed.blocks];
     blocks[index] = updated;
-    handleBlocksChange(blocks);
+    // Typing in one block is one undo step, not one per keystroke.
+    handleBlocksChange(blocks, `block:${index}`);
   };
 
   if (loading) {
@@ -429,6 +478,29 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
         </div>
 
         <div className="journal-editor-topbar-right">
+          <div className="journal-editor-history" role="group" aria-label="Undo and redo">
+            <button
+              type="button"
+              className="admin-btn admin-btn-sm admin-btn-secondary"
+              onClick={handleUndo}
+              disabled={history.past.length === 0}
+              aria-label="Undo"
+              title={`Undo (⌘Z / Ctrl+Z) — ${history.past.length} of 5 steps`}
+            >
+              ↶ Undo
+            </button>
+            <button
+              type="button"
+              className="admin-btn admin-btn-sm admin-btn-secondary"
+              onClick={handleRedo}
+              disabled={history.future.length === 0}
+              aria-label="Redo"
+              title={`Redo (⇧⌘Z / Ctrl+Y) — ${history.future.length} of 5 steps`}
+            >
+              ↷ Redo
+            </button>
+          </div>
+
           <button
             type="button"
             className="admin-btn admin-btn-sm admin-btn-secondary"
