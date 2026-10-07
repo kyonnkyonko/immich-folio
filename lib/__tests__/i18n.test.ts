@@ -15,6 +15,7 @@ import { fr } from '../i18n/locales/fr';
 import { es } from '../i18n/locales/es';
 import { it as itIT } from '../i18n/locales/it';
 import { nl } from '../i18n/locales/nl';
+import { zh } from '../i18n/locales/zh';
 import type { Dictionary } from '../i18n';
 
 describe('resolveLocale', () => {
@@ -32,6 +33,7 @@ describe('resolveLocale', () => {
     expect(resolveLocale('es-MX')).toBe('es');
     expect(resolveLocale('it-CH')).toBe('it');
     expect(resolveLocale('nl-BE')).toBe('nl');
+    expect(resolveLocale('zh-TW')).toBe('zh');
   });
 
   it('is case- and whitespace-insensitive', () => {
@@ -145,6 +147,7 @@ const TRANSLATIONS: [string, Dictionary, string[]][] = [
       'privacy.navLabel',
     ],
   ],
+  ['zh', zh, []],
 ];
 
 describe('supported locales', () => {
@@ -323,6 +326,19 @@ const PLURAL_TABLE: [string, Dictionary, Record<CountedKey, [string, string, str
       downloadsLeft: ['Nog 0 downloads', 'Nog 1 download', 'Nog 2 downloads'],
     },
   ],
+  [
+    'zh',
+    zh,
+    {
+      // Chinese does not inflect for number; only the count changes.
+      photos: ['0 張照片', '1 張照片', '2 張照片'],
+      albums: ['0 本相簿', '1 本相簿', '2 本相簿'],
+      collections: ['0 個系列', '1 個系列', '2 個系列'],
+      selected: ['❤️ 已選 0 張', '❤️ 已選 1 張', '❤️ 已選 2 張'],
+      mailSubject: ['照片選取（0 張）', '照片選取（1 張）', '照片選取（2 張）'],
+      downloadsLeft: ['還可以下載 0 次', '還可以下載 1 次', '還可以下載 2 次'],
+    },
+  ],
 ];
 
 describe('plural forms at 0, 1 and 2', () => {
@@ -343,6 +359,7 @@ describe('plural forms at 0, 1 and 2', () => {
     ['es', es, ['0 días.', '1 día.', '2 días.']],
     ['it', itIT, ['0 giorni.', '1 giorno.', '2 giorni.']],
     ['nl', nl, ['0 dagen verwijderd.', '1 dag verwijderd.', '2 dagen verwijderd.']],
+    ['zh', zh, ['0 天後刪除。', '1 天後刪除。', '2 天後刪除。']],
   ] as const)('contact retention days in %s', (_code, dict, endings) => {
     const got = [0, 1, 2].map((n) => dict.contact.privacy(n));
     got.forEach((text, i) => expect(text.endsWith(` ${endings[i]}`), text).toBe(true));

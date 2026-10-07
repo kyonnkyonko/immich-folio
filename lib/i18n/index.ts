@@ -19,9 +19,10 @@ import { fr } from './locales/fr';
 import { es } from './locales/es';
 import { it } from './locales/it';
 import { nl } from './locales/nl';
+import { zh } from './locales/zh';
 
 /** Locales with a dictionary. Anything else falls back to English. */
-export const SUPPORTED_LOCALES = ['en', 'de', 'fr', 'es', 'it', 'nl'] as const;
+export const SUPPORTED_LOCALES = ['en', 'de', 'fr', 'es', 'it', 'nl', 'zh'] as const;
 
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
@@ -30,7 +31,7 @@ export const DEFAULT_LOCALE: Locale = 'en';
 /** The shape every dictionary must implement — English is the reference. */
 export type Dictionary = typeof en;
 
-const DICTIONARIES: Record<Locale, Dictionary> = { en, de, fr, es, it, nl };
+const DICTIONARIES: Record<Locale, Dictionary> = { en, de, fr, es, it, nl, zh };
 
 /**
  * Map a `settings.yaml: lang` value onto a locale we have strings for.

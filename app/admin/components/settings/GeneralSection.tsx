@@ -104,6 +104,7 @@ export default function GeneralSection({
           <option value="es">Español (ES)</option>
           <option value="it">Italiano (IT)</option>
           <option value="nl">Nederlands (NL)</option>
+          <option value="zh-TW">繁體中文 (zh-TW)</option>
           <option value="ja">日本語 (JA)</option>
         </select>
         <p className="admin-field-hint">
