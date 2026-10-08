@@ -31,6 +31,7 @@ import {
   SortableSubpageRow,
 } from './page-builder/SortableTiles';
 import PagePanel from './page-builder/PagePanel';
+import { FOLDED_GROUP_LABEL, splitFoldedPages } from './page-builder/pageGroups';
 import { isValidSlug } from '@/lib/journal';
 import NewPageDialog from './page-builder/NewPageDialog';
 import type { PageSummary, SlugTakenBy } from '@/lib/pages';
@@ -116,6 +117,8 @@ export default function PageBuilder() {
   });
   /** The page shown in the panel; exclusive with `expandedSubpage`. */
   const [selectedPage, setSelectedPage] = useState<string | null>(null);
+  /** The folded group of daily pages (pageGroups.ts): closed until opened. */
+  const [foldedOpen, setFoldedOpen] = useState(false);
   const [showNewPage, setShowNewPage] = useState(false);
   const [creatingPage, setCreatingPage] = useState(false);
   /** The edit panel beside (or, on narrow screens, below) the structure list. */
@@ -768,6 +771,11 @@ export default function PageBuilder() {
   const offMenuPages = pages
     .filter((p) => !ops.isPageInMenu(gallery, p.slug) && pageMatches(p.slug))
     .sort((a, b) => pageTitle(a.slug).localeCompare(pageTitle(b.slug)));
+  // Daily pages fold into a group of their own, sorted by date (their slug)
+  // rather than by title; a search opens the group so matches can be seen.
+  const { regular: offMenuRegular, folded: offMenuFolded } = splitFoldedPages(offMenuPages);
+  offMenuFolded.sort((a, b) => a.slug.localeCompare(b.slug));
+  const showFolded = foldedOpen || !!searchQuery;
 
   // Filter subpages
   const filteredSubpages = gallery.subpages
@@ -942,14 +950,14 @@ export default function PageBuilder() {
             <div className="pb-group">
               <div className="pb-group-head">
                 <span>Not in menu</span>
-                <span>{offMenuPages.length}</span>
+                <span>{offMenuRegular.length}</span>
               </div>
               <OffMenuDropZone id={OFF_MENU_ID}>
                 <SortableContext
-                  items={offMenuPages.map((p) => `off-${p.slug}`)}
+                  items={offMenuRegular.map((p) => `off-${p.slug}`)}
                   strategy={verticalListSortingStrategy}
                 >
-                  {offMenuPages.map((p) => (
+                  {offMenuRegular.map((p) => (
                     <SortablePageRow
                       key={`off-${p.slug}`}
                       id={`off-${p.slug}`}
@@ -961,13 +969,49 @@ export default function PageBuilder() {
                     />
                   ))}
                 </SortableContext>
-                {offMenuPages.length === 0 && (
+                {offMenuRegular.length === 0 && (
                   <p className="empty-hint">
                     Pages reachable only by their link. Drag a page here to take it out of the menu.
                   </p>
                 )}
               </OffMenuDropZone>
             </div>
+
+            {offMenuFolded.length > 0 && (
+              <div className="pb-group">
+                <button
+                  type="button"
+                  className="pb-group-head pb-group-toggle"
+                  aria-expanded={showFolded}
+                  onClick={() => setFoldedOpen((open) => !open)}
+                >
+                  <span>
+                    {showFolded ? '▾' : '▸'} {FOLDED_GROUP_LABEL}
+                  </span>
+                  <span>{offMenuFolded.length}</span>
+                </button>
+                {showFolded && (
+                  // Same `off-` ids as "Not in menu": the drag handler treats
+                  // them alike, so a daily page can still be dragged into the menu.
+                  <SortableContext
+                    items={offMenuFolded.map((p) => `off-${p.slug}`)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {offMenuFolded.map((p) => (
+                      <SortablePageRow
+                        key={`off-${p.slug}`}
+                        id={`off-${p.slug}`}
+                        title={pageTitle(p.slug)}
+                        isActive={selectedPage === p.slug}
+                        draft={p.frontmatter.draft}
+                        hasPassword={!!p.frontmatter.password}
+                        onClick={() => selectPage(p.slug)}
+                      />
+                    ))}
+                  </SortableContext>
+                )}
+              </div>
+            )}
           </DndContext>
 
           <div className="pb-group">

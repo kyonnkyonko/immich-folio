@@ -3,7 +3,7 @@
 這是 [ralksta/immich-folio](https://github.com/ralksta/immich-folio) 的 fork，給「庭園美景」生活日誌網站（https://photos.kyonnkyonko.cc）用。
 這份文件列出**跟官方不一樣的地方**，官方出新版、合併進來之後，照第 3 節逐項檢查每個功能還在不在。
 
-最後更新：2026-10-07　｜　目前部署：`zh-tw` 分支 commit `3cdaa4b`（官方 v0.20.1＋下列修改）
+最後更新：2026-10-08　｜　目前部署：`zh-tw` 分支（官方 v0.20.1＋下列 A、B、C 三項修改；commit 見第 6 節）
 
 ---
 
@@ -114,6 +114,37 @@ npx vitest run app/admin/__tests__/journal-undo-history.test.ts app/admin/compon
 - 官方在 `JournalEditor.tsx` **新增了別的修改方式**（新按鈕、新的 handler 直接 `setRawMarkdown`／`setParsed`）→ 那種修改不會進歷史。合併後搜尋 `setRawMarkdown(`：除了 `applyEdit`、`showHistoryState`、載入、存檔後改寫、`discardDraft`、`restoreConflictingDraft` 以外，不該有別的地方直接呼叫
 - 官方自己做了復原功能 → 比較後二選一，不要兩套並存
 
+### C. 管理介面：每日頁收合成一組（2026-10-08）
+
+**目的**：網站有 366 個每日頁（`/tyday-01_01`～`/tyday-12_31`，由 photo-journal repo 的 `scripts/tyday/make_pages.py` 產生），在 admin 的 Pages 分頁全擠在「Not in menu」。改成另外一組「每日照片 tyday-\*」，**預設收合**。
+
+| 檔案                                              | 改了什麼                                                                                                                                     |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/admin/components/page-builder/pageGroups.ts` | **新增**：`FOLDED_PAGE_PREFIX = 'tyday-'`、`FOLDED_GROUP_LABEL`、`isFoldedPage`、`splitFoldedPages`                                          |
+| `app/admin/components/PageBuilder.tsx`            | `foldedOpen` state；`offMenuPages` 拆成 `offMenuRegular`／`offMenuFolded`（每日頁依日期排序）；「Not in menu」只列一般頁；下面加可收合的一組 |
+| `app/admin/styles/redesign.css`                   | 新增 `.pb-group-toggle`（標題列變成按鈕）                                                                                                    |
+| `app/admin/__tests__/page-groups.test.ts`         | **新增**：判斷與拆分的測試                                                                                                                   |
+
+`PageBuilder.tsx` 的改動重點：每日頁那一組的每一列沿用 `off-<slug>` 的 id，所以 `handleMenuDragEnd` 不用改，每日頁一樣可以拖進選單；搜尋框有字時這組自動展開。
+
+**自動檢查**：
+
+```bash
+npx vitest run app/admin/__tests__/page-groups.test.ts
+```
+
+**手動檢查**（admin → Pages）：
+
+- [ ] 左側「Not in menu」只有一般頁面，數字不含 366 個每日頁
+- [ ] 下面有「▸ 每日照片 tyday-\*　366」，預設收合；點一下展開（▾），依日期 01_01 → 12_31 排列
+- [ ] 點其中一頁可以在右邊編輯
+- [ ] 搜尋框打「10月8日」或「10_08」→ 這組自動展開並只顯示符合的頁面
+
+**容易出問題的地方**：
+
+- 官方改了 `PageBuilder.tsx` 裡「Not in menu」那一段（`offMenuPages`、`OffMenuDropZone`）→ 合併時衝突，照上表把拆分和收合的那一組加回去
+- 每日頁的網址改了開頭（不再是 `tyday-`）→ 改 `pageGroups.ts` 的 `FOLDED_PAGE_PREFIX`
+
 ---
 
 ## 3. 官方出新版時的檢查流程
@@ -139,7 +170,7 @@ npx vitest run app/admin/__tests__/journal-undo-history.test.ts app/admin/compon
    ```bash
    npm ci
    npx tsc --noEmit
-   npx vitest run                      # 完整測試；2026-10-07 是 212 個檔案、2733 個測試
+   npx vitest run                      # 完整測試；2026-10-08 是 213 個檔案、2736 個測試
    npx eslint lib/i18n app/admin/components/journal
    ```
 
