@@ -90,7 +90,7 @@
 .essay-heading--4 {
   font-size: clamp(1.1rem, 2vw, 1.3rem);
 }
-/* `#####`: a small date label above a day's photos ("09/03"). */
+/* `#####`: a small, muted label (for example a date above a day's photos). */
 .essay-heading--5 {
   font-size: 0.95rem;
   font-weight: 500;

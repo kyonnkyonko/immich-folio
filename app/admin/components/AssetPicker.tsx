@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useModalDialog } from '@/hooks/useModalDialog';
 import { canSelectMore, matchesQuery, toggleSelection } from '@/lib/admin/assetSelection';
 import { IconCheck, IconFolder, IconImage, IconSearch, IconStar } from './Icons';
@@ -10,21 +10,33 @@ interface AssetInfo {
   id: string;
   originalFileName: string;
   fileCreatedAt: string;
-  /** Capture time as the camera's wall clock (Immich), for date headings. */
+  /** Capture time as the camera's wall clock (Immich): the grid's date sections. */
   localDateTime?: string;
   isFavorite: boolean;
 }
 
-/** What a multi-select hands over besides the ids. */
-export interface PickedExtra {
-  /** Dates of a picked photo, when the picker listed it (a pasted UUID has none). */
-  metaOf: (id: string) => Pick<AssetInfo, 'localDateTime' | 'fileCreatedAt'> | undefined;
-  /** The "date headings" box was ticked. */
-  dateHeadings: boolean;
+const LONG_PRESS_MS = 400;
+
+/**
+ * The calendar day a photo was taken, as "YYYY-MM-DD". `localDateTime` is the
+ * camera's wall clock written as if it were UTC, so its own digits are the
+ * local date; without it, `fileCreatedAt` in the browser's time zone.
+ */
+export function captureDay(asset: Pick<AssetInfo, 'localDateTime' | 'fileCreatedAt'>): string {
+  const local = asset.localDateTime?.match(/^\d{4}-\d{2}-\d{2}/);
+  if (local) return local[0];
+  const d = new Date(asset.fileCreatedAt);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-const LONG_PRESS_MS = 400;
-const DATE_HEADINGS_KEY = 'folio-picker-date-headings';
+/** "09/03", with the year in front when it is not the current one ("2024/09/03"). */
+export function dayHeading(day: string, thisYear = new Date().getFullYear()): string {
+  const [y, m, d] = day.split('-');
+  if (!d) return '日期不明';
+  return Number(y) === thisYear ? `${m}/${d}` : `${y}/${m}/${d}`;
+}
 
 interface Props {
   /** Single-select: called with the one asset picked; the caller closes the picker. */
@@ -33,9 +45,7 @@ interface Props {
    * Multi-select (#602): tiles toggle, and a confirm button hands over every
    * picked asset in the order they were picked. Takes precedence over `onSelect`.
    */
-  onSelectMany?: (assetIds: string[], extra: PickedExtra) => void;
-  /** Offer the "date headings" box in multi-select (journal "+ Photos"). */
-  dateHeadingsOption?: boolean;
+  onSelectMany?: (assetIds: string[]) => void;
   /** Most assets `onSelectMany` accepts; unlimited when omitted. */
   max?: number;
   onClose: () => void;
@@ -56,7 +66,6 @@ export default function AssetPicker({
   currentAssetIds = [],
   albumId,
   title,
-  dateHeadingsOption = false,
 }: Props) {
   useScrollLock(true);
   const cardRef = useModalDialog(onClose);
@@ -81,23 +90,10 @@ export default function AssetPicker({
    */
   const generation = useRef(0);
   const currentIds = useMemo(() => new Set(currentAssetIds), [currentAssetIds]);
-  /** Every photo listed so far, across tabs and pages, so a pick keeps its date. */
-  const seenMeta = useRef(new Map<string, AssetInfo>());
   const [preview, setPreview] = useState<AssetInfo | null>(null);
   const pressTimer = useRef<number | undefined>(undefined);
   /** The press that just ended opened the preview: its click must not pick. */
   const longPressed = useRef(false);
-  const [dateHeadings, setDateHeadings] = useState(() => {
-    try {
-      return localStorage.getItem(DATE_HEADINGS_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    for (const a of assets) seenMeta.current.set(a.id, a);
-  }, [assets]);
 
   useEffect(() => () => window.clearTimeout(pressTimer.current), []);
 
@@ -114,15 +110,6 @@ export default function AssetPicker({
   function endPress() {
     window.clearTimeout(pressTimer.current);
     setPreview(null);
-  }
-
-  function toggleDateHeadings(on: boolean) {
-    setDateHeadings(on);
-    try {
-      localStorage.setItem(DATE_HEADINGS_KEY, on ? '1' : '0');
-    } catch {
-      /* private mode: the choice just isn't remembered */
-    }
   }
 
   // Debounce typing into the query the fetch runs on.
@@ -209,11 +196,7 @@ export default function AssetPicker({
   }
 
   function confirm() {
-    if (multi && selected.length > 0)
-      onSelectMany(selected, {
-        metaOf: (id) => seenMeta.current.get(id),
-        dateHeadings: dateHeadingsOption && dateHeadings,
-      });
+    if (multi && selected.length > 0) onSelectMany(selected);
   }
 
   function handleUuidSubmit(e: React.FormEvent) {
@@ -341,7 +324,9 @@ export default function AssetPicker({
             </p>
           ) : (
             <>
-              {visible.map((asset) => {
+              {visible.map((asset, i) => {
+                const day = captureDay(asset);
+                const newDay = i === 0 || captureDay(visible[i - 1]) !== day;
                 const isUsed = currentIds.has(asset.id);
                 const order = selected.indexOf(asset.id);
                 const isSelected = order !== -1;
@@ -349,7 +334,7 @@ export default function AssetPicker({
                 const label = `${asset.originalFileName}, ${formatDate(asset.fileCreatedAt)}${
                   isUsed ? ' (already used)' : ''
                 }`;
-                return (
+                const tile = (
                   <button
                     type="button"
                     key={asset.id}
@@ -391,6 +376,16 @@ export default function AssetPicker({
                     )}
                   </button>
                 );
+                return newDay ? (
+                  <Fragment key={asset.id}>
+                    <h4 className="asset-picker-day" key={`day-${day}-${i}`}>
+                      {dayHeading(day)}
+                    </h4>
+                    {tile}
+                  </Fragment>
+                ) : (
+                  tile
+                );
               })}
               {loadingMore && (
                 <div className="asset-picker-loading-more">
@@ -411,16 +406,6 @@ export default function AssetPicker({
                   : 'Pick photos'
                 : `${selected.length}${max && max > 1 ? ` of ${max}` : ''} selected`}
             </span>
-            {dateHeadingsOption && (
-              <label className="asset-picker-date-headings">
-                <input
-                  type="checkbox"
-                  checked={dateHeadings}
-                  onChange={(e) => toggleDateHeadings(e.target.checked)}
-                />
-                依日期加小標（##### 09/03）
-              </label>
-            )}
             {selected.length > 0 && (
               <button
                 type="button"

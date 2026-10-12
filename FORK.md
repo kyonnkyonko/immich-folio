@@ -145,41 +145,39 @@ npx vitest run app/admin/__tests__/page-groups.test.ts
 - 官方改了 `PageBuilder.tsx` 裡「Not in menu」那一段（`offMenuPages`、`OffMenuDropZone`）→ 合併時衝突，照上表把拆分和收合的那一組加回去
 - 每日頁的網址改了開頭（不再是 `tyday-`）→ 改 `pageGroups.ts` 的 `FOLDED_PAGE_PREFIX`
 
-### D. Journal Studio：複製區塊、挑選器長按看大圖、照片依日期加小標（2026-10-12）
+### D. Journal Studio：複製區塊、挑選器長按看大圖、挑選器依日期分段（2026-10-12）
 
-**目的**：使用者要求。（1）日誌／頁面編輯時，區塊可以複製；（2）挑選照片時，滑鼠（或手指）長按顯示大圖；（3）「+ Photos」一次加入多張時，可以依拍攝日期分組，每天前面加 `##### 09/03` 小標。
+**目的**：使用者要求。（1）日誌／頁面編輯時，區塊可以複製；（2）挑選照片時，滑鼠（或手指）長按顯示大圖；（3）挑選器瀏覽時照片依拍攝日期分段，每天上面一個「09/03」標題（今年以外加年份「2024/09/03」）。
 
-| 檔案                                                                              | 改了什麼                                                                                                                                                                                                                                                           |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `app/admin/components/journal/blockOps.ts`                                        | 新增 `duplicateBlock`（深拷貝插在原區塊下方）、`photoDateLabel`（`localDateTime` → `MM/DD`，沒有就用 `fileCreatedAt` 的瀏覽器時區日期）、`createPhotoBlocksByDate`（依拍攝時間排序、每天一個 level 5 標題；沒有日期的照片放最後）                                  |
-| `app/admin/components/journal/JournalEditor.tsx`                                  | 每個區塊的操作列多一個複製按鈕（`IconCopy`，`aria-label="Duplicate block"`）；「+ Photos」傳 `dateHeadingsOption: true`，勾選時用 `createPhotoBlocksByDate`；`onSelectMany` 多傳第二個參數 `extra`                                                                 |
-| `app/admin/components/journal/BlockFields.tsx`                                    | `AssetPickTarget.onSelectMany(ids, extra)`、`dateHeadingsOption`；標題層級選單加 H4、H5（日期）                                                                                                                                                                    |
-| `app/admin/components/AssetPicker.tsx`                                            | `AssetInfo.localDateTime`；長按 400ms（`LONG_PRESS_MS`）顯示 `.asset-picker-preview` 大圖，放開或移開就關，長按那一下不算選取；多選時可顯示「依日期加小標」勾選框（記在 localStorage `folio-picker-date-headings`）；`onSelectMany(ids, { metaOf, dateHeadings })` |
-| `app/admin/styles/asset-picker.css`                                               | `.asset-picker-preview`、`.asset-picker-date-headings`；縮圖禁止選取文字和 iOS 長按選單                                                                                                                                                                            |
-| `app/api/admin/thumbnail/[id]/route.ts`                                           | `?size=preview` 回大圖（其他值一律 `thumbnail`）                                                                                                                                                                                                                   |
-| `app/api/admin/assets/route.ts`、`app/api/admin/albums/[albumId]/assets/route.ts` | 回傳多帶 `localDateTime`                                                                                                                                                                                                                                           |
-| `app/[...path]/essay.css`                                                         | 新增 `.essay-heading--4`、`.essay-heading--5`（小字、淡色、等寬數字的日期標籤）                                                                                                                                                                                    |
-| `app/admin/__tests__/journal-duplicate-dates.test.ts`                             | **新增**：複製、日期標籤（含跨 UTC 日界）、分組、`#####` 存檔讀回                                                                                                                                                                                                  |
-| `app/admin/components/__tests__/AssetPicker-preview.test.tsx`                     | **新增**：長按顯示大圖且不選取、短按仍選取、勾選框與日期交給呼叫端                                                                                                                                                                                                 |
+| 檔案                                                                              | 改了什麼                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/admin/components/journal/blockOps.ts`                                        | 新增 `duplicateBlock`（深拷貝插在原區塊下方）                                                                                                                                                                                                                                                                                    |
+| `app/admin/components/journal/JournalEditor.tsx`                                  | 每個區塊的操作列多一個複製按鈕（`IconCopy`，`aria-label="Duplicate block"`，在下移和刪除之間）                                                                                                                                                                                                                                   |
+| `app/admin/components/journal/BlockFields.tsx`                                    | 標題層級選單加 H4、H5                                                                                                                                                                                                                                                                                                            |
+| `app/admin/components/AssetPicker.tsx`                                            | `AssetInfo.localDateTime`；新增 `captureDay`（`localDateTime` 的日期，沒有就用 `fileCreatedAt` 的瀏覽器時區日期）、`dayHeading`；照片格遇到日期變了就插一個 `<h4 class="asset-picker-day">`（照 API 原本的順序，不重新排序）；長按 400ms（`LONG_PRESS_MS`）顯示 `.asset-picker-preview` 大圖，放開或移開就關，長按那一下不算選取 |
+| `app/admin/styles/asset-picker.css`                                               | `.asset-picker-day`（`grid-column: 1 / -1`）、`.asset-picker-preview`；縮圖禁止選取文字和 iOS 長按選單                                                                                                                                                                                                                           |
+| `app/api/admin/thumbnail/[id]/route.ts`                                           | `?size=preview` 回大圖（其他值一律 `thumbnail`）                                                                                                                                                                                                                                                                                 |
+| `app/api/admin/assets/route.ts`、`app/api/admin/albums/[albumId]/assets/route.ts` | 回傳多帶 `localDateTime`                                                                                                                                                                                                                                                                                                         |
+| `app/[...path]/essay.css`                                                         | 新增 `.essay-heading--4`、`.essay-heading--5` 樣式（原本只有 1～3 級）                                                                                                                                                                                                                                                           |
+| `app/admin/__tests__/journal-duplicate-block.test.ts`                             | **新增**：複製區塊                                                                                                                                                                                                                                                                                                               |
+| `app/admin/components/__tests__/AssetPicker-preview.test.tsx`                     | **新增**：日期分段、`captureDay`／`dayHeading`、長按顯示大圖且不選取、短按仍選取                                                                                                                                                                                                                                                 |
 
 **自動檢查**：
 
 ```bash
-npx vitest run app/admin/__tests__/journal-duplicate-dates.test.ts app/admin/components/__tests__/AssetPicker-preview.test.tsx
+npx vitest run app/admin/__tests__/journal-duplicate-block.test.ts app/admin/components/__tests__/AssetPicker-preview.test.tsx
 ```
 
 **手動檢查**（admin → Journal 或 Pages 編輯器）：
 
 - [ ] 每個區塊右上角：上移、下移、**複製**、刪除；按複製後下方出現一樣的區塊，可以⌘Z 復原
-- [ ] 「+ Photos」挑選器裡按住一張縮圖約半秒 → 出現大圖和檔名日期，放開就消失，那張沒有被勾選
-- [ ] 下方有「依日期加小標（##### 09/03）」；勾選後加入不同天的照片 → 依日期排好，每天前面有「09/03」小標
-- [ ] 預覽／網站上日期小標是小字淡色
+- [ ] 打開照片挑選器（「+ Photos」或任何選照片的地方）：照片依日期分段，每段上面有「09/03」
+- [ ] 按住一張縮圖約半秒 → 出現大圖和檔名日期，放開就消失，那張沒有被勾選
 
 **容易出問題的地方**：
 
-- 官方改了 `AssetPicker` 的 `onSelectMany` 簽名或縮圖按鈕 → 合併時衝突，照上表把長按和第二個參數加回去
+- 官方改了 `AssetPicker` 的照片格（`visible.map`）或縮圖按鈕 → 合併時衝突，照上表把日期標題和長按加回去
 - 官方的編輯器也加了複製 → 改用官方的，刪掉這裡的按鈕和 `duplicateBlock`
-- 頁面的 `#####` 只是一般標題，官方解析器不變就不用改 `lib/journal.ts`
 
 ---
 
@@ -244,9 +242,10 @@ docker compose up -d folio
 
 ## 6. 升級紀錄
 
-| 日期       | 官方版本 | zh-tw commit | 結果 | 備註                                             |
-| ---------- | -------- | ------------ | ---- | ------------------------------------------------ |
-| 2026-10-07 | v0.20.1  | `9c48529`    | ✅   | 第一次部署：繁中介面                             |
-| 2026-10-07 | v0.20.1  | `3cdaa4b`    | ✅   | 加復原／重做；完整測試 2733 通過                 |
-| 2026-10-08 | v0.20.1  | `b66ee75`    | ✅   | admin 每日頁收合；完整測試 2736 通過             |
-| 2026-10-12 | v0.20.1  | `723e3e3`    | ✅   | 複製區塊、長按大圖、日期小標；完整測試 2746 通過 |
+| 日期       | 官方版本 | zh-tw commit | 結果 | 備註                                                                 |
+| ---------- | -------- | ------------ | ---- | -------------------------------------------------------------------- |
+| 2026-10-07 | v0.20.1  | `9c48529`    | ✅   | 第一次部署：繁中介面                                                 |
+| 2026-10-07 | v0.20.1  | `3cdaa4b`    | ✅   | 加復原／重做；完整測試 2733 通過                                     |
+| 2026-10-08 | v0.20.1  | `b66ee75`    | ✅   | admin 每日頁收合；完整測試 2736 通過                                 |
+| 2026-10-12 | v0.20.1  | `723e3e3`    | ✅   | 複製區塊、長按大圖、日期小標；完整測試 2746 通過                     |
+| 2026-10-12 | v0.20.1  | （待填）     | ⏳   | 日期小標改為挑選器依日期分段（使用者要的是這個）；完整測試 2743 通過 |

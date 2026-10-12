@@ -39,13 +39,7 @@ import { BlockFields, type AssetPickTarget } from './BlockFields';
 import { StorySettingsModal } from './StorySettingsModal';
 import { PageSettingsPanel } from './PageSettingsPanel';
 import { JournalPreview } from './JournalPreview';
-import {
-  createBlock,
-  createPhotoBlocks,
-  createPhotoBlocksByDate,
-  duplicateBlock,
-  moveBlock,
-} from './blockOps';
+import { createBlock, createPhotoBlocks, duplicateBlock, moveBlock } from './blockOps';
 import {
   emptyHistory,
   isTextEditingTarget,
@@ -635,14 +629,8 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
                   onClick={() =>
                     setAssetPickerTarget({
                       title: 'Add Photos (one block each)',
-                      dateHeadingsOption: true,
-                      onSelectMany: (ids, extra) =>
-                        handleBlocksChange([
-                          ...parsed.blocks,
-                          ...(extra.dateHeadings
-                            ? createPhotoBlocksByDate(ids, extra.metaOf)
-                            : createPhotoBlocks(ids)),
-                        ]),
+                      onSelectMany: (ids) =>
+                        handleBlocksChange([...parsed.blocks, ...createPhotoBlocks(ids)]),
                     })
                   }
                 >
@@ -811,15 +799,14 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
         <AssetPicker
           title={assetPickerTarget.title}
           max={assetPickerTarget.max}
-          dateHeadingsOption={assetPickerTarget.dateHeadingsOption}
           onSelect={(id) => {
             assetPickerTarget.onSelect?.(id);
             setAssetPickerTarget(null);
           }}
           onSelectMany={
             assetPickerTarget.onSelectMany &&
-            ((ids, extra) => {
-              assetPickerTarget.onSelectMany?.(ids, extra);
+            ((ids) => {
+              assetPickerTarget.onSelectMany?.(ids);
               setAssetPickerTarget(null);
             })
           }

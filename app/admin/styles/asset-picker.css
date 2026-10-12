@@ -279,10 +279,17 @@ button.asset-picker-tile {
   -webkit-touch-callout: none;
   user-select: none;
 }
-.asset-picker-date-headings {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
-  margin-right: auto;
+/* Date sections in the grid: a full-width "09/03" above each day's photos. */
+.asset-picker-day {
+  grid-column: 1 / -1;
+  margin: 0.75rem 0 0.1rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--admin-border, rgba(127, 127, 127, 0.25));
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.asset-picker-day:first-child {
+  margin-top: 0;
 }

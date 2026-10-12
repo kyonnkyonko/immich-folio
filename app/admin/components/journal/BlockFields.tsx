@@ -1,5 +1,4 @@
 'use client';
-import type { PickedExtra } from '../AssetPicker';
 
 import type { JournalBlock, MapItem } from '@/lib/journal';
 import { isValidCoordinate } from '@/lib/journal';
@@ -22,9 +21,7 @@ export interface AssetPickTarget {
   title: string;
   onSelect?: (assetId: string) => void;
   /** Multi-select: several picks confirmed at once (#602). */
-  onSelectMany?: (assetIds: string[], extra: PickedExtra) => void;
-  /** Offer the picker's "date headings" box ("+ Photos"). */
-  dateHeadingsOption?: boolean;
+  onSelectMany?: (assetIds: string[]) => void;
   /** Most assets `onSelectMany` takes. */
   max?: number;
 }
@@ -69,7 +66,7 @@ export function BlockFields({
             <option value={2}>H2</option>
             <option value={3}>H3</option>
             <option value={4}>H4</option>
-            <option value={5}>H5（日期）</option>
+            <option value={5}>H5</option>
           </select>
           <input
             type="text"
