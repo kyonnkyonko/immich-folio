@@ -24,12 +24,15 @@ export const GET = withAdmin(
       return NextResponse.json({ error: 'Invalid asset ID' }, { status: 400 });
     }
 
+    // `preview` is the larger rendition, for the picker's press-and-hold enlargement.
+    const size = request.nextUrl.searchParams.get('size') === 'preview' ? 'preview' : 'thumbnail';
+
     try {
       const res = await fetch(
         // `edited=true`: the pickers show a photo as edited in Immich, like
         // the site does (#831). For a photo that is not edited Immich returns
         // the same bytes, so it needs no lookup first.
-        `${config.immich.apiUrl}/assets/${assetId}/thumbnail?size=thumbnail&edited=true`,
+        `${config.immich.apiUrl}/assets/${assetId}/thumbnail?size=${size}&edited=true`,
         {
           headers: {
             'x-api-key': config.immich.apiKey,

@@ -10,8 +10,21 @@ interface AssetInfo {
   id: string;
   originalFileName: string;
   fileCreatedAt: string;
+  /** Capture time as the camera's wall clock (Immich), for date headings. */
+  localDateTime?: string;
   isFavorite: boolean;
 }
+
+/** What a multi-select hands over besides the ids. */
+export interface PickedExtra {
+  /** Dates of a picked photo, when the picker listed it (a pasted UUID has none). */
+  metaOf: (id: string) => Pick<AssetInfo, 'localDateTime' | 'fileCreatedAt'> | undefined;
+  /** The "date headings" box was ticked. */
+  dateHeadings: boolean;
+}
+
+const LONG_PRESS_MS = 400;
+const DATE_HEADINGS_KEY = 'folio-picker-date-headings';
 
 interface Props {
   /** Single-select: called with the one asset picked; the caller closes the picker. */
@@ -20,7 +33,9 @@ interface Props {
    * Multi-select (#602): tiles toggle, and a confirm button hands over every
    * picked asset in the order they were picked. Takes precedence over `onSelect`.
    */
-  onSelectMany?: (assetIds: string[]) => void;
+  onSelectMany?: (assetIds: string[], extra: PickedExtra) => void;
+  /** Offer the "date headings" box in multi-select (journal "+ Photos"). */
+  dateHeadingsOption?: boolean;
   /** Most assets `onSelectMany` accepts; unlimited when omitted. */
   max?: number;
   onClose: () => void;
@@ -41,6 +56,7 @@ export default function AssetPicker({
   currentAssetIds = [],
   albumId,
   title,
+  dateHeadingsOption = false,
 }: Props) {
   useScrollLock(true);
   const cardRef = useModalDialog(onClose);
@@ -65,6 +81,49 @@ export default function AssetPicker({
    */
   const generation = useRef(0);
   const currentIds = useMemo(() => new Set(currentAssetIds), [currentAssetIds]);
+  /** Every photo listed so far, across tabs and pages, so a pick keeps its date. */
+  const seenMeta = useRef(new Map<string, AssetInfo>());
+  const [preview, setPreview] = useState<AssetInfo | null>(null);
+  const pressTimer = useRef<number | undefined>(undefined);
+  /** The press that just ended opened the preview: its click must not pick. */
+  const longPressed = useRef(false);
+  const [dateHeadings, setDateHeadings] = useState(() => {
+    try {
+      return localStorage.getItem(DATE_HEADINGS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    for (const a of assets) seenMeta.current.set(a.id, a);
+  }, [assets]);
+
+  useEffect(() => () => window.clearTimeout(pressTimer.current), []);
+
+  function startPress(asset: AssetInfo, e: React.PointerEvent) {
+    if (e.button !== 0) return;
+    longPressed.current = false;
+    window.clearTimeout(pressTimer.current);
+    pressTimer.current = window.setTimeout(() => {
+      longPressed.current = true;
+      setPreview(asset);
+    }, LONG_PRESS_MS);
+  }
+
+  function endPress() {
+    window.clearTimeout(pressTimer.current);
+    setPreview(null);
+  }
+
+  function toggleDateHeadings(on: boolean) {
+    setDateHeadings(on);
+    try {
+      localStorage.setItem(DATE_HEADINGS_KEY, on ? '1' : '0');
+    } catch {
+      /* private mode: the choice just isn't remembered */
+    }
+  }
 
   // Debounce typing into the query the fetch runs on.
   useEffect(() => {
@@ -150,7 +209,11 @@ export default function AssetPicker({
   }
 
   function confirm() {
-    if (multi && selected.length > 0) onSelectMany(selected);
+    if (multi && selected.length > 0)
+      onSelectMany(selected, {
+        metaOf: (id) => seenMeta.current.get(id),
+        dateHeadings: dateHeadingsOption && dateHeadings,
+      });
   }
 
   function handleUuidSubmit(e: React.FormEvent) {
@@ -293,11 +356,22 @@ export default function AssetPicker({
                     className={`asset-picker-tile ${isUsed ? 'used' : ''} ${
                       isSelected ? 'selected' : ''
                     }`}
-                    onClick={() => pick(asset.id)}
+                    onClick={() => {
+                      if (longPressed.current) {
+                        longPressed.current = false;
+                        return;
+                      }
+                      pick(asset.id);
+                    }}
+                    onPointerDown={(e) => startPress(asset, e)}
+                    onPointerUp={endPress}
+                    onPointerLeave={endPress}
+                    onPointerCancel={endPress}
+                    onContextMenu={(e) => e.preventDefault()}
                     disabled={blocked}
                     aria-pressed={multi ? isSelected : undefined}
                     aria-label={label}
-                    title={`${asset.originalFileName}\n${formatDate(asset.fileCreatedAt)}`}
+                    title={`${asset.originalFileName}\n${formatDate(asset.fileCreatedAt)}\n長按看大圖`}
                   >
                     <img src={`/api/admin/thumbnail/${asset.id}`} alt="" loading="lazy" />
                     {isUsed && (
@@ -337,6 +411,16 @@ export default function AssetPicker({
                   : 'Pick photos'
                 : `${selected.length}${max && max > 1 ? ` of ${max}` : ''} selected`}
             </span>
+            {dateHeadingsOption && (
+              <label className="asset-picker-date-headings">
+                <input
+                  type="checkbox"
+                  checked={dateHeadings}
+                  onChange={(e) => toggleDateHeadings(e.target.checked)}
+                />
+                依日期加小標（##### 09/03）
+              </label>
+            )}
             {selected.length > 0 && (
               <button
                 type="button"
@@ -354,6 +438,16 @@ export default function AssetPicker({
             >
               {selected.length > 1 ? `Add ${selected.length} photos` : 'Add photo'}
             </button>
+          </div>
+        )}
+
+        {preview && (
+          <div className="asset-picker-preview" aria-hidden="true">
+            <img src={`/api/admin/thumbnail/${preview.id}?size=preview`} alt="" />
+            <span>
+              {preview.originalFileName} ·{' '}
+              {formatDate(preview.localDateTime ?? preview.fileCreatedAt)}
+            </span>
           </div>
         )}
 

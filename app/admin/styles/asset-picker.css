@@ -249,3 +249,40 @@ button.asset-picker-tile {
 .asset-picker-selection > span {
   flex: 1;
 }
+
+/* Press-and-hold enlargement: shown while the tile is held, gone on release. */
+.asset-picker-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.82);
+  pointer-events: none;
+}
+.asset-picker-preview img {
+  max-width: min(92vw, 1100px);
+  max-height: 82vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.asset-picker-preview span {
+  color: #f2f2f2;
+  font-size: 0.85rem;
+}
+.asset-picker-tile {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.asset-picker-date-headings {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  margin-right: auto;
+}

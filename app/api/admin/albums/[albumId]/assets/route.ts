@@ -48,6 +48,7 @@ export const GET = withAdmin(
           type: a.type,
           originalFileName: a.originalFileName,
           fileCreatedAt: a.fileCreatedAt,
+          localDateTime: a.localDateTime,
           isFavorite: a.isFavorite ?? false,
         }));
 

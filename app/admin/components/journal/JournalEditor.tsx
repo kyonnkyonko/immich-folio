@@ -11,6 +11,7 @@ import {
   IconArrowLeftRight,
   IconTrash,
   IconChevronUp,
+  IconCopy,
   IconChevronDown,
   IconGear,
   IconLink,
@@ -38,7 +39,13 @@ import { BlockFields, type AssetPickTarget } from './BlockFields';
 import { StorySettingsModal } from './StorySettingsModal';
 import { PageSettingsPanel } from './PageSettingsPanel';
 import { JournalPreview } from './JournalPreview';
-import { createBlock, createPhotoBlocks, moveBlock } from './blockOps';
+import {
+  createBlock,
+  createPhotoBlocks,
+  createPhotoBlocksByDate,
+  duplicateBlock,
+  moveBlock,
+} from './blockOps';
 import {
   emptyHistory,
   isTextEditingTarget,
@@ -390,6 +397,11 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
     handleBlocksChange(arrayMove(parsed.blocks, from, to));
   };
 
+  const handleDuplicateBlock = (index: number) => {
+    const blocks = duplicateBlock(parsed.blocks, index);
+    if (blocks) handleBlocksChange(blocks);
+  };
+
   const handleDeleteBlock = (index: number) => {
     handleBlocksChange(parsed.blocks.filter((_, i) => i !== index));
   };
@@ -623,8 +635,14 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
                   onClick={() =>
                     setAssetPickerTarget({
                       title: 'Add Photos (one block each)',
-                      onSelectMany: (ids) =>
-                        handleBlocksChange([...parsed.blocks, ...createPhotoBlocks(ids)]),
+                      dateHeadingsOption: true,
+                      onSelectMany: (ids, extra) =>
+                        handleBlocksChange([
+                          ...parsed.blocks,
+                          ...(extra.dateHeadings
+                            ? createPhotoBlocksByDate(ids, extra.metaOf)
+                            : createPhotoBlocks(ids)),
+                        ]),
                     })
                   }
                 >
@@ -697,6 +715,15 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
                             onClick={() => handleMoveBlock(idx, 'down')}
                           >
                             <IconChevronDown size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-btn admin-btn-xs"
+                            aria-label="Duplicate block"
+                            title="複製這個區塊"
+                            onClick={() => handleDuplicateBlock(idx)}
+                          >
+                            <IconCopy size={12} />
                           </button>
                           <button
                             type="button"
@@ -784,14 +811,15 @@ export function JournalEditor({ slug, mapEnabled, onBack, kind = 'journal' }: Jo
         <AssetPicker
           title={assetPickerTarget.title}
           max={assetPickerTarget.max}
+          dateHeadingsOption={assetPickerTarget.dateHeadingsOption}
           onSelect={(id) => {
             assetPickerTarget.onSelect?.(id);
             setAssetPickerTarget(null);
           }}
           onSelectMany={
             assetPickerTarget.onSelectMany &&
-            ((ids) => {
-              assetPickerTarget.onSelectMany?.(ids);
+            ((ids, extra) => {
+              assetPickerTarget.onSelectMany?.(ids, extra);
               setAssetPickerTarget(null);
             })
           }

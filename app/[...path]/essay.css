@@ -87,6 +87,18 @@
 .essay-heading--3 {
   font-size: clamp(1.25rem, 2.5vw, 1.6rem);
 }
+.essay-heading--4 {
+  font-size: clamp(1.1rem, 2vw, 1.3rem);
+}
+/* `#####`: a small date label above a day's photos ("09/03"). */
+.essay-heading--5 {
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, inherit);
+  margin: 2.5rem auto 0.75rem auto;
+}
 
 /* Pullquote */
 .essay-quote {

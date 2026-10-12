@@ -18,6 +18,7 @@ interface ImmichSearchResult {
       originalFileName: string;
       thumbhash: string | null;
       fileCreatedAt: string;
+      localDateTime?: string;
       isFavorite: boolean;
     }>;
     nextPage: string | null;
@@ -130,6 +131,8 @@ export const GET = withAdmin(async (request: NextRequest) => {
         id: asset.id,
         originalFileName: asset.originalFileName,
         fileCreatedAt: asset.fileCreatedAt,
+        // Capture time as the camera's wall clock: the journal's date headings group by it.
+        localDateTime: asset.localDateTime,
         isFavorite: asset.isFavorite,
       }));
 
