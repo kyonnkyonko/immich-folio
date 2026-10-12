@@ -30,6 +30,8 @@ export interface PhotoItem {
   thumbUrl: string;
   previewUrl: string;
   videoUrl?: string;
+  /** Live Photo: the motion clip, played over the still while held (lightbox). */
+  liveUrl?: string;
   exifUrl: string;
   blurDataURL?: string;
   dominantColor?: string;
@@ -351,6 +353,11 @@ function PhotoGridInner({
                   <polygon points="10,8 10,16 17,12" fill="white" />
                 </svg>
               </div>
+            )}
+            {asset.liveUrl && (
+              <span className="photo-grid__item-live" aria-hidden="true">
+                LIVE
+              </span>
             )}
             {exifLine && (
               <div className="photo-grid__item-exif" aria-hidden="true">

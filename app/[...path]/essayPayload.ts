@@ -20,6 +20,7 @@ import { immich, type ImmichAsset } from '@/lib/immich';
 import {
   imageUrl,
   videoUrl,
+  liveVideoUrl,
   exifUrl,
   assetPlaceholder,
   assetAspectRatio,
@@ -181,6 +182,7 @@ export async function buildEssayPayload(
         thumbUrl: imageUrl(a, 'preview'),
         previewUrl: imageUrl(a, 'preview'),
         ...(isVideo ? { videoUrl: videoUrl(a.id) } : {}),
+        ...(!isVideo && a.livePhotoVideoId ? { liveUrl: liveVideoUrl(a.id) } : {}),
         exifUrl: exifUrl(a.id),
         ...(ph ? { blurDataURL: ph.blurDataURL, dominantColor: ph.dominantColor } : {}),
         ...(exif ?? {}),

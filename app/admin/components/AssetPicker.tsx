@@ -8,6 +8,8 @@ import { useScrollLock } from './useScrollLock';
 
 interface AssetInfo {
   id: string;
+  /** IMAGE or VIDEO; listed only when the picker allows videos. */
+  type?: string;
   originalFileName: string;
   fileCreatedAt: string;
   /** Capture time as the camera's wall clock (Immich): the grid's date sections. */
@@ -52,6 +54,8 @@ interface Props {
   currentAssetIds?: string[];
   albumId?: string;
   title?: string;
+  /** List videos as well as photos (journal and page photo blocks). */
+  allowVideos?: boolean;
 }
 
 type Tab = 'album' | 'favorites' | 'all';
@@ -66,6 +70,7 @@ export default function AssetPicker({
   currentAssetIds = [],
   albumId,
   title,
+  allowVideos = false,
 }: Props) {
   useScrollLock(true);
   const cardRef = useModalDialog(onClose);
@@ -138,13 +143,16 @@ export default function AssetPicker({
       try {
         let res: Response;
         if (tab === 'album' && albumId) {
-          res = await fetch(`/api/admin/albums/${albumId}/assets`);
+          res = await fetch(
+            `/api/admin/albums/${albumId}/assets${allowVideos ? '?types=all' : ''}`,
+          );
         } else {
           const params = new URLSearchParams({
             page: pageNum.toString(),
             favorites: tab === 'favorites' ? 'true' : 'false',
           });
           if (serverQuery) params.set('q', serverQuery);
+          if (allowVideos) params.set('types', 'all');
           res = await fetch(`/api/admin/assets?${params}`);
         }
         if (res.ok) {
@@ -168,7 +176,7 @@ export default function AssetPicker({
         }
       }
     },
-    [tab, albumId, serverQuery],
+    [tab, albumId, serverQuery, allowVideos],
   );
 
   useEffect(() => {
@@ -367,6 +375,11 @@ export default function AssetPicker({
                     {isSelected && (
                       <span className="asset-picker-order-badge" aria-hidden="true">
                         {max === 1 ? <IconCheck size={11} /> : order + 1}
+                      </span>
+                    )}
+                    {asset.type === 'VIDEO' && (
+                      <span className="asset-picker-video-badge" aria-hidden="true">
+                        ▶
                       </span>
                     )}
                     {asset.isFavorite && !isUsed && (

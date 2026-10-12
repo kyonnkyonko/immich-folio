@@ -179,6 +179,48 @@ npx vitest run app/admin/__tests__/journal-duplicate-block.test.ts app/admin/com
 - 官方改了 `AssetPicker` 的照片格（`visible.map`）或縮圖按鈕 → 合併時衝突，照上表把日期標題和長按加回去
 - 官方的編輯器也加了複製 → 改用官方的，刪掉這裡的按鈕和 `duplicateBlock`
 
+### E. 挑選器可選影片、網站播放 Live Photo（2026-10-12）
+
+**目的**：使用者要求。（1）日誌／頁面的照片區塊能選影片（網站本來就會播放日誌裡的影片，只是挑選器只列照片）；（2）Live Photo 在網站上能播放動態：照片格上有「LIVE」標示，燈箱裡滑鼠移到（或手指按住）左上角的 LIVE 就播放，放開回到靜態照片。
+
+| 檔案                                                           | 改了什麼                                                                                                                                                                                                      |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/api/admin/assets/route.ts`                                | `?types=all`：搜尋不限類型、只留 IMAGE／VIDEO，回傳加 `type`                                                                                                                                                  |
+| `app/admin/components/AssetPicker.tsx`                         | `allowVideos` prop（相簿分頁加 `?types=all`、圖庫分頁加 `types=all`）；影片縮圖左下角 `▶`                                                                                                                     |
+| `app/admin/components/journal/BlockFields.tsx`                 | `AssetPickTarget.allowVideos`；單張、並排、格狀照片區塊的 6 個挑選器開放影片（地圖、封面不開放）                                                                                                              |
+| `app/admin/components/journal/JournalEditor.tsx`               | 「+ Photos」開放影片；把 `allowVideos` 傳給挑選器                                                                                                                                                             |
+| `lib/immich.ts`                                                | `ImmichAsset.livePhotoVideoId`                                                                                                                                                                                |
+| `lib/urls.ts`                                                  | **新增** `liveVideoUrl(stillId)` → `/api/live/<靜態照片的 token>`                                                                                                                                             |
+| `app/api/live/[id]/route.ts`                                   | **新增**：複製 `/api/video` 的規則；token 是**靜態照片**的，先檢查靜態照片有公開，再查它的 `livePhotoVideoId` 串流動態影片（不是 Live Photo 回 404）。隱藏的動態影片本身沒有網址                              |
+| `app/[...path]/PhotoGrid.tsx`                                  | `PhotoItem.liveUrl`；相簿格的 Live Photo 左上角「LIVE」                                                                                                                                                       |
+| `app/[...path]/photoItems.ts`、`app/[...path]/essayPayload.ts` | 有 `livePhotoVideoId` 的照片帶 `liveUrl`                                                                                                                                                                      |
+| `app/[...path]/EssayView.tsx`                                  | `mediaBadges()`：日誌／頁面照片格加影片 `▶`（原本沒有）和「LIVE」                                                                                                                                             |
+| `components/Lightbox.tsx`、`components/Lightbox.module.css`    | `livePlaying` state；LIVE 按鈕（`aria-label="Live Photo"`）：滑鼠移入播放、移出停止；觸控按住播放、放開停止；鍵盤空白鍵／Enter 切換；影片靜音、疊在照片上（`.liveVideo`），播完回到照片；換照片或放大時不顯示 |
+| `app/globals.css`                                              | `.photo-grid__item-live`                                                                                                                                                                                      |
+| `app/api/__tests__/site-gate.test.ts`                          | 新路由加進 GATED 清單（這個測試會檢查每個公開路由都有列）                                                                                                                                                     |
+| `app/api/__tests__/live-route.test.ts`                         | **新增**：已公開才串流、未公開不碰 Immich、非 Live Photo 404、壞 token 400                                                                                                                                    |
+| `components/__tests__/LightboxLive.test.tsx`                   | **新增**：一般照片沒有 LIVE、滑鼠、觸控、鍵盤、播完回到照片                                                                                                                                                   |
+| `app/admin/components/__tests__/AssetPicker-preview.test.tsx`  | 加：`allowVideos` 才帶 `types=all`、影片有 `▶`                                                                                                                                                                |
+
+**自動檢查**：
+
+```bash
+npx vitest run app/api/__tests__/live-route.test.ts app/api/__tests__/site-gate.test.ts components/__tests__/LightboxLive.test.tsx app/admin/components/__tests__/AssetPicker-preview.test.tsx
+```
+
+**手動檢查**：
+
+- [ ] admin 日誌編輯器 → 照片區塊或「+ Photos」：看得到影片（左下角 ▶），可以選；封面挑選器只有照片
+- [ ] 網站上放了影片的日誌：照片格中央有 ▶，點開在燈箱播放
+- [ ] 放了 Live Photo 的日誌：照片格左上角「LIVE」；燈箱裡滑鼠移到 LIVE → 動起來，移開回到照片；手機按住 LIVE 播放
+- [ ] `curl -I https://photos.kyonnkyonko.cc/api/live/<某張非 Live Photo 的 token>` → 404
+
+**容易出問題的地方**：
+
+- 官方的 `/api/video` 改了授權或串流方式 → `/api/live` 是照它複製的，要一起改
+- 官方自己支援 Live Photo → 改用官方的，刪掉這項
+- Immich 改了 `livePhotoVideoId` 欄位名稱 → Live Photo 會全部變成一般照片（不會壞，只是沒有 LIVE）
+
 ---
 
 ## 3. 官方出新版時的檢查流程
@@ -249,3 +291,4 @@ docker compose up -d folio
 | 2026-10-08 | v0.20.1  | `b66ee75`    | ✅   | admin 每日頁收合；完整測試 2736 通過                                 |
 | 2026-10-12 | v0.20.1  | `723e3e3`    | ✅   | 複製區塊、長按大圖、日期小標；完整測試 2746 通過                     |
 | 2026-10-12 | v0.20.1  | `6d40bde`    | ✅   | 日期小標改為挑選器依日期分段（使用者要的是這個）；完整測試 2743 通過 |
+| 2026-10-12 | v0.20.1  | （待填）     | ⏳   | 挑選器可選影片、網站播放 Live Photo；完整測試 2755 通過              |

@@ -93,6 +93,8 @@ export function Lightbox({
   const [canFullscreen, setCanFullscreen] = useState(false);
   const { exifData, exifLoading, fetchExif, clearExif } = useExif();
   const [imageLoaded, setImageLoaded] = useState(false);
+  /** Live Photo: the motion clip is playing over the still (held, or hovered). */
+  const [livePlaying, setLivePlaying] = useState(false);
   /**
    * 'manual' is the honest outcome when the clipboard is unavailable — which is
    * not a rarity here: `navigator.clipboard` is undefined outside a secure
@@ -177,6 +179,7 @@ export function Lightbox({
   useEffect(() => {
     clearExif();
     setImageLoaded(false);
+    setLivePlaying(false);
     if (showExif && current) {
       fetchExif(current.exifUrl);
     }
@@ -591,6 +594,70 @@ export function Lightbox({
             onLoad={() => setImageLoaded(true)}
             onError={() => console.error(`[Lightbox] Failed to load image: ${current.previewUrl}`)}
           />
+        )}
+
+        {current.type === 'image' && current.liveUrl && !zoom.zoomed && (
+          <>
+            {livePlaying && (
+              // eslint-disable-next-line jsx-a11y/media-has-caption
+              <video
+                key={current.id}
+                className={styles.liveVideo}
+                src={current.liveUrl}
+                autoPlay
+                muted
+                playsInline
+                aria-hidden="true"
+                onEnded={() => setLivePlaying(false)}
+                onError={() => setLivePlaying(false)}
+              />
+            )}
+            <button
+              type="button"
+              className={`${styles.liveBadge}${livePlaying ? ` ${styles.liveBadgeOn}` : ''}`}
+              aria-label="Live Photo"
+              aria-pressed={livePlaying}
+              onPointerEnter={(e) => e.pointerType === 'mouse' && setLivePlaying(true)}
+              onPointerLeave={(e) => e.pointerType === 'mouse' && setLivePlaying(false)}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                setLivePlaying(true);
+              }}
+              onPointerUp={(e) => e.pointerType !== 'mouse' && setLivePlaying(false)}
+              onPointerCancel={() => setLivePlaying(false)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setLivePlaying((on) => !on);
+                }
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" fill="currentColor" />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="6.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeDasharray="1.6 2.2"
+                />
+              </svg>
+              LIVE
+            </button>
+          </>
         )}
 
         {/*

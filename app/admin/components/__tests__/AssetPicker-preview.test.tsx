@@ -85,3 +85,28 @@ describe('AssetPicker', () => {
     expect(tile.getAttribute('aria-pressed')).toBe('true');
   });
 });
+
+describe('AssetPicker videos', () => {
+  it('asks for videos only when allowed, and marks them', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string) =>
+        new Response(
+          JSON.stringify({
+            assets: [{ ...ASSETS[0], type: 'VIDEO', originalFileName: 'clip.mov' }],
+            nextPage: null,
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    render(<AssetPicker onSelect={() => {}} onClose={() => {}} allowVideos />);
+    const tile = await screen.findByRole('button', { name: /clip\.mov/ });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('types=all');
+    expect(tile.querySelector('.asset-picker-video-badge')).not.toBeNull();
+    cleanup();
+    fetchMock.mockClear();
+    render(<AssetPicker onSelect={() => {}} onClose={() => {}} />);
+    await screen.findByRole('button', { name: /clip\.mov/ });
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('types=all');
+  });
+});

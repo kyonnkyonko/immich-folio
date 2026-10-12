@@ -94,6 +94,26 @@ function EssayViewContent({
     if (at !== -1) setLightboxIndex(at);
   };
 
+  /** Fork: ▶ on videos and a LIVE pill on Live Photos, like the album grid. */
+  const mediaBadges = (item: PhotoItem | undefined) =>
+    item ? (
+      <>
+        {item.type === 'video' && (
+          <div className="photo-grid__item-play" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="12" fillOpacity="0.55" />
+              <polygon points="10,8 10,16 17,12" fill="white" />
+            </svg>
+          </div>
+        )}
+        {item.liveUrl && (
+          <span className="photo-grid__item-live" aria-hidden="true">
+            LIVE
+          </span>
+        )}
+      </>
+    ) : null;
+
   /**
    * One photo tile of a pair or a grid: sized by its real ratio (see
    * .essay-pair-grid), opens the lightbox, carries the proofing heart. The pair
@@ -123,6 +143,7 @@ function EssayViewContent({
             ? { placeholder: 'blur' as const, blurDataURL: item.blurDataURL }
             : {})}
         />
+        {mediaBadges(item)}
         {proofing && (
           <button
             type="button"
@@ -230,6 +251,7 @@ function EssayViewContent({
                     ? { placeholder: 'blur' as const, blurDataURL: item.blurDataURL }
                     : {})}
                 />
+                {mediaBadges(item)}
 
                 {proofing && (
                   <button
@@ -450,6 +472,7 @@ function EssayViewContent({
                 ? { placeholder: 'blur' as const, blurDataURL: coverAsset.item.blurDataURL }
                 : {})}
             />
+            {mediaBadges(coverAsset.item)}
           </div>
         </figure>
       )}

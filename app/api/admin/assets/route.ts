@@ -76,13 +76,15 @@ export const GET = withAdmin(async (request: NextRequest) => {
     return NextResponse.json({ error: 'Invalid page' }, { status: 400 });
   }
   const favoritesOnly = searchParams.get('favorites') === 'true';
+  // Fork: `types=all` lists videos too (journal and page photo blocks play them).
+  const includeVideos = searchParams.get('types') === 'all';
   const q = (searchParams.get('q') ?? '').trim();
   if (q.length > MAX_QUERY_LENGTH) {
     return NextResponse.json({ error: 'Search query too long' }, { status: 400 });
   }
 
   const base: Record<string, unknown> = {
-    type: 'IMAGE',
+    ...(includeVideos ? {} : { type: 'IMAGE' }),
     size: PAGE_SIZE,
     page,
     order: 'desc',
@@ -123,12 +125,15 @@ export const GET = withAdmin(async (request: NextRequest) => {
     const assets = results
       .flatMap((r) => r.assets.items)
       .filter((a) => {
+        // Without a type filter Immich also returns audio and other files.
+        if (includeVideos && a.type !== 'IMAGE' && a.type !== 'VIDEO') return false;
         if (seen.has(a.id)) return false;
         seen.add(a.id);
         return true;
       })
       .map((asset) => ({
         id: asset.id,
+        type: asset.type,
         originalFileName: asset.originalFileName,
         fileCreatedAt: asset.fileCreatedAt,
         // Capture time as the camera's wall clock: the journal's date headings group by it.

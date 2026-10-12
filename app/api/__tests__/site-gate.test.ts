@@ -89,6 +89,14 @@ const GATED: { name: string; call: () => Promise<Response> }[] = [
       ),
   },
   {
+    name: 'GET /api/live/[id]',
+    call: async () =>
+      (await import('../live/[id]/route')).GET(
+        request('/api/live/tok') as never,
+        params('tok') as never,
+      ),
+  },
+  {
     name: 'GET /api/exif/[id]',
     call: async () =>
       (await import('../exif/[id]/route')).GET(

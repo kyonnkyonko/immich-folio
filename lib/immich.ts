@@ -57,6 +57,11 @@ export interface ImmichAsset {
   fileCreatedAt: string;
   /** Capture time in the photographer's local zone — Immich's timeline sort key. */
   localDateTime?: string;
+  /**
+   * The motion part of a Live Photo: a hidden VIDEO asset Immich pairs with
+   * this still. Served only through /api/live/<the still's token>.
+   */
+  livePhotoVideoId?: string | null;
   exifInfo?: ImmichExifInfo;
   isTrashed: boolean;
   /**

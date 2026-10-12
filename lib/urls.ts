@@ -93,6 +93,16 @@ export function videoUrl(assetId: string): string {
 }
 
 /**
+ * The motion clip of a Live Photo, addressed by the *still's* token: the
+ * route checks that the still is published and looks the clip up itself, so
+ * the hidden video asset never needs a URL of its own.
+ */
+export function liveVideoUrl(stillAssetId: string): string {
+  const v = cacheBuster ? `?${cacheBuster.slice(1)}` : '';
+  return `${cdnBase()}/api/live/${encodeAssetId(stillAssetId)}${v}`;
+}
+
+/**
  * Placeholder data derived from an asset's ThumbHash.
  */
 export interface PlaceholderData {

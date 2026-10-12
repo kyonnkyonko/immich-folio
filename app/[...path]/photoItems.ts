@@ -16,6 +16,7 @@ import {
   exifUrl,
   imageUrl,
   videoUrl,
+  liveVideoUrl,
   zoomUrl,
 } from '@/lib/urls';
 import { zoomDimensions, zoomSourceFor } from '@/lib/zoomSource';
@@ -54,6 +55,7 @@ export function toPhotoItems(
         thumbUrl: imageUrl(a, 'preview'),
         previewUrl: imageUrl(a, 'preview'),
         ...(isVideo ? { videoUrl: videoUrl(a.id) } : {}),
+        ...(!isVideo && a.livePhotoVideoId ? { liveUrl: liveVideoUrl(a.id) } : {}),
         exifUrl: exifUrl(a.id),
         ...(ph ? { blurDataURL: ph.blurDataURL, dominantColor: ph.dominantColor } : {}),
         ...(exif ?? {}),

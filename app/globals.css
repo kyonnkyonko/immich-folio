@@ -1599,6 +1599,22 @@ body:has(> #main-content) > .footer {
   }
 }
 
+/* Fork: Live Photo marker on grid and essay tiles; it plays in the lightbox. */
+.photo-grid__item-live {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
 .photo-grid__item-play {
   position: absolute;
   inset: 0;

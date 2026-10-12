@@ -20,6 +20,8 @@ import { fillAssetSlots, isLegacyAssetRef } from './blockOps';
 export interface AssetPickTarget {
   title: string;
   onSelect?: (assetId: string) => void;
+  /** Fork: list videos too (photo, pair and grid blocks; "+ Photos"). */
+  allowVideos?: boolean;
   /** Multi-select: several picks confirmed at once (#602). */
   onSelectMany?: (assetIds: string[]) => void;
   /** Most assets `onSelectMany` takes. */
@@ -141,6 +143,7 @@ export function BlockFields({
             onClick={() =>
               onPickAsset({
                 title: 'Select Photo for Story',
+                allowVideos: true,
                 onSelect: (id) => onChange({ ...block, assetId: id }),
               })
             }
@@ -187,6 +190,7 @@ export function BlockFields({
                 onClick={() =>
                   onPickAsset({
                     title: 'Select Photo for Story',
+                    allowVideos: true,
                     onSelect: (id) => onChange({ ...block, assetId: id }),
                   })
                 }
@@ -244,6 +248,7 @@ export function BlockFields({
                 onClick={() =>
                   onPickAsset({
                     title: `Select Photo #${pIdx + 1} for Pair`,
+                    allowVideos: true,
                     onSelect: (id) => {
                       const newIds = [...block.assetIds] as [string, string];
                       newIds[pIdx] = id;
@@ -272,6 +277,7 @@ export function BlockFields({
               onClick={() =>
                 onPickAsset({
                   title: 'Select Photos for Pair',
+                  allowVideos: true,
                   max: 2,
                   onSelectMany: (ids) => {
                     // Two picks replace the pair; a single pick fills a gap.
@@ -312,6 +318,7 @@ export function BlockFields({
                   onClick={() =>
                     onPickAsset({
                       title: `Select Photo #${pIdx + 1} for Grid`,
+                      allowVideos: true,
                       onSelect: (id) => {
                         const newIds = [...block.assetIds];
                         newIds[pIdx] = id;
@@ -364,6 +371,7 @@ export function BlockFields({
               onClick={() =>
                 onPickAsset({
                   title: 'Select Photos for Grid',
+                  allowVideos: true,
                   onSelectMany: (ids) =>
                     onChange({ ...block, assetIds: fillAssetSlots(block.assetIds, ids) }),
                 })
